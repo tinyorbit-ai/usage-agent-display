@@ -13,6 +13,9 @@ bun.lockb.bak
 config/secrets.h
 firmware/**/secrets.h
 firmware/**/wifi_config.h
+# The real firmware secrets header (WiFi creds + bearer token). Only the
+# .example template is tracked.
+firmware/src/config.h
 
 # Build output
 dist/

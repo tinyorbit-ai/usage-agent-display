@@ -1,0 +1,15 @@
+{
+  "name": "@usage/daemon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "module": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@usage/shared": "workspace:*",
+    "ccusage": "16.2.4"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "usage-agent-display",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p packages/shared/tsconfig.json && tsc -p packages/server/tsconfig.json && tsc -p packages/daemon/tsconfig.json && tsc -p tsconfig.json",
+    "check:sql": "bun run scripts/check-no-raw-sql.ts",
+    "scan:secrets": "bun run scripts/scan-secrets.ts",
+    "test:unit": "bun test packages",
+    "test:firmware": "bun run firmware/test/run-native.ts",
+    "e2e": "bun run scripts/e2e-phase1.ts",
+    "gate": "bun run typecheck && bun run check:sql && bun run scan:secrets && bun run test:unit && bun run test:firmware && bun run e2e"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

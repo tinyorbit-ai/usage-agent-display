@@ -23,6 +23,8 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 - [[decisions/0003-daemon-auth-bearer]] — shared bearer token for daemon → API
 - [[decisions/0004-ingest-dedup-model]] — (machine, provider, type, bucket) upsert; provider-agnostic schema
 - [[decisions/0005-cyd-board-and-toolchain]] — ESP32-2432S028R + PlatformIO/LVGL/TFT_eSPI
+- [[decisions/0006-cost-attribution-grain]] — replicate cost per category row, de-dup per model/bucket when summing
+- [[decisions/0007-firmware-host-testable-core]] — pure host-compilable firmware core, no emulator
 
 ### Incident notes
 

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@usage/shared": ["./packages/shared/src/index.ts"]
+    }
+  },
+  "include": ["scripts", "firmware/test/run-native.ts"]
+}

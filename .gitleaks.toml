@@ -1,0 +1,41 @@
+# gitleaks config for usage-agent-display. Extends the default ruleset with custom
+# rules for this project's secret shapes (the shared bearer token and WiFi creds).
+# The real firmware config.h and .env files are gitignored, so they aren't scanned;
+# these rules catch a secret accidentally pasted into TRACKED source.
+#
+# Run: gitleaks detect --config .gitleaks.toml --no-banner
+# (or: bun run scripts/scan-secrets.ts, which uses gitleaks if installed)
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "usage-bearer-token-assignment"
+description = "Hard-coded shared bearer token in source"
+# e.g. USAGE_BEARER_TOKEN = "abc", API_BEARER_TOKEN "abc", token: "abc..."
+regex = '''(?i)(usage_bearer_token|api_bearer_token|bearer[_-]?token)\s*[:=]\s*["'][^"']{8,}["']'''
+tags = ["bearer", "token"]
+[rules.allowlist]
+# Placeholders in the example template and docs are fine.
+regexes = [
+  '''replace-with-shared-secret''',
+  '''replace-with''',
+  '''your-''',
+  '''<[^>]+>''',
+]
+
+[[rules]]
+id = "wifi-credentials"
+description = "Hard-coded WiFi SSID/PSK"
+regex = '''(?i)(wifi_ssid|wifi_password|wifi_psk)\s*[:=]\s*["'][^"']+["']'''
+tags = ["wifi"]
+[rules.allowlist]
+regexes = ['''your-network''', '''your-password''', '''your-''']
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''firmware/src/config\.h\.example''',
+  '''\.env\.example''',
+  '''\.gitleaks\.toml''',
+]
