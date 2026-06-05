@@ -14,6 +14,7 @@ import type {
 import type { Db } from "./db.ts";
 import { PRICING_VERSION, priceTokens } from "./pricing.ts";
 import { fractionOfDay, fractionOfMonth, project, reckoningDay } from "./projection.ts";
+import { buildLive } from "./live.ts";
 
 export interface SummaryConfig {
   /** a machine with nothing newer than this many seconds is flagged stale. */
@@ -85,6 +86,7 @@ export function buildSummary(db: Db, nowMs: number, config: SummaryConfig): Usag
         : { machine: session.machine_id, tokens: session.tokens, cost_usd: session.cost_usd },
     month: { month, tokens: monthRollup.tokens, cost_usd: monthRollup.cost_usd },
     cost: buildCostInstrument(db, nowMs, config, month),
+    ...buildLive(db, nowMs),
   };
 }
 

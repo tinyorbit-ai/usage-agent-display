@@ -125,6 +125,17 @@ export interface Budget {
 }
 
 /**
+ * A rolling 1-hour token-burn time-series (phase 4). `buckets` is oldest→newest, one
+ * value per `bucket_seconds`-wide slot, each the tokens BURNED (positive delta) in that
+ * slot across all machines. An empty slot is 0 — a real gap, never phantom burn.
+ */
+export interface Sparkline {
+  bucket_seconds: number;
+  /** burn per bucket, oldest first; length = 3600 / bucket_seconds. */
+  buckets: number[];
+}
+
+/**
  * Cost as an instrument (phase 3): spend priced from our own per-model, per-category
  * table over the granular stored rows — NOT trusting ccusage's number — plus honest
  * handling of models we don't price and forward projection. Tokens stay the hero;
@@ -161,6 +172,14 @@ export interface UsageSummary {
   month: MonthToDate;
   /** phase 3 — cost instrument: priced spend, projection, budget. */
   cost: CostInstrument;
+  /** phase 4 — rolling 1h token-burn series for the scrolling sparkline. */
+  sparkline_1h: Sparkline;
+  /**
+   * phase 4 — the machine currently *burning* tokens (most recent positive delta in
+   * the live window), or null. NOT merely the most-recently-synced daemon, which ticks
+   * on a timer even when idle.
+   */
+  active_machine: string | null;
 }
 
 /** Bounds shared by validation on both ends. Generous but finite — DoS ceilings. */

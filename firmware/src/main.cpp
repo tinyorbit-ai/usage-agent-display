@@ -25,11 +25,17 @@ static lv_color_t buf[kScreenW * 10];
 
 // Tiles (created once, updated each poll).
 static lv_obj_t* g_statusChip = nullptr;  // non-color state signal (top-left)
-static lv_obj_t* g_hero = nullptr;        // hero token number
+static lv_obj_t* g_hero = nullptr;        // hero token number (interpolated)
 static lv_obj_t* g_cost = nullptr;        // cost line
 static lv_obj_t* g_providers = nullptr;   // CC vs Codex
 static lv_obj_t* g_machines = nullptr;    // per-machine + age/stale
 static lv_obj_t* g_footer = nullptr;      // session · month · last-sync age
+static lv_obj_t* g_spark = nullptr;       // 1h burn sparkline (phase 4)
+static lv_chart_series_t* g_sparkSeries = nullptr;
+
+// phase 4: the hero ticks smoothly toward the last confirmed total between polls.
+static usage::Ticker g_ticker;
+static char g_activeMachine[24] = "";
 
 static void flush_cb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* pixels) {
   uint32_t w = area->x2 - area->x1 + 1;
@@ -71,6 +77,18 @@ static void display_init() {
   g_providers = mkLabel(8, 100, &lv_font_montserrat_14, lv_color_hex(0xBBBBBB));
   g_machines = mkLabel(8, 130, &lv_font_montserrat_14, lv_color_hex(0xBBBBBB));
   g_footer = mkLabel(8, 210, &lv_font_montserrat_14, lv_color_hex(0x888888));
+
+  // 1h burn sparkline (phase 4) — a thin scrolling line chart, bottom strip.
+  g_spark = lv_chart_create(lv_scr_act());
+  lv_obj_set_size(g_spark, 180, 36);
+  lv_obj_set_pos(g_spark, 132, 168);
+  lv_chart_set_type(g_spark, LV_CHART_TYPE_LINE);
+  lv_chart_set_point_count(g_spark, 60);
+  lv_obj_set_style_bg_opa(g_spark, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(g_spark, 0, LV_PART_MAIN);
+  lv_obj_set_style_size(g_spark, 0, LV_PART_INDICATOR); // no point markers
+  g_sparkSeries = lv_chart_add_series(g_spark, lv_color_hex(0x44AAFF), LV_CHART_AXIS_PRIMARY_Y);
+
   lv_label_set_text(g_statusChip, "... connecting");
 }
 
@@ -104,13 +122,18 @@ static void renderStateChrome(usage::PanelKind kind) {
 
 // Render the detailed tiles from the (already validated) summary body. Rendering
 // only — no decisions. Bounded reads; missing fields render as blanks, never garbage.
+// Update the hero label from the ticker's currently-interpolated value (phase 4).
+static void renderHeroTick() {
+  char heroText[40];
+  formatTokens(g_ticker.displayed, heroText, sizeof(heroText));
+  lv_label_set_text(g_hero, heroText);
+}
+
 static void renderTiles(const char* body, size_t len) {
   JsonDocument doc;
   if (deserializeJson(doc, body, len)) return;  // core already validated; be safe
 
-  char heroText[40];
-  formatTokens(doc["totals"]["tokens"].as<long long>(), heroText, sizeof(heroText));
-  lv_label_set_text(g_hero, heroText);
+  // Hero is driven by the ticker (renderHeroTick), not set directly here.
 
   // Cost instrument (phase 3): priced spend, EOD/month projection, budget. The "~"
   // marks an estimate that is partial (unpriced models present), so it reads honestly.
@@ -162,6 +185,22 @@ static void renderTiles(const char* body, size_t len) {
   long syncAge = doc["last_sync"].isNull() ? -1 : doc["last_sync"]["age_seconds"].as<long>();
   snprintf(footer, sizeof(footer), "sess %ld  mtd %ld  sync %lds", sessionTok, monthTok, syncAge);
   lv_label_set_text(g_footer, footer);
+
+  // Sparkline (phase 4): the 1h burn series scrolls in. Empty buckets are 0 → flat.
+  JsonArray buckets = doc["sparkline_1h"]["buckets"].as<JsonArray>();
+  if (!buckets.isNull() && g_sparkSeries != nullptr) {
+    int i = 0;
+    for (JsonVariant v : buckets) {
+      if (i >= 60) break;
+      lv_chart_set_next_value(g_spark, g_sparkSeries, static_cast<lv_coord_t>(v.as<long>()));
+      i++;
+    }
+    lv_chart_refresh(g_spark);
+  }
+
+  // Active machine (phase 4): remember it so its tile can glow.
+  const char* active = doc["active_machine"].as<const char*>();
+  snprintf(g_activeMachine, sizeof(g_activeMachine), "%s", active ? active : "");
 }
 
 static void wifi_connect() {
@@ -205,7 +244,11 @@ static void poll_once() {
 
   const usage::PanelKind kind = usage::classifyPanel(g_state);
   renderStateChrome(kind);
-  if (g_state.hasValue && g_lastLen > 0) renderTiles(g_lastBody, g_lastLen);
+  if (g_state.hasValue) {
+    // Feed the freshly confirmed total to the ticker (bounded ease / reset).
+    usage::tickerConfirm(g_ticker, g_state.tokens);
+    if (g_lastLen > 0) renderTiles(g_lastBody, g_lastLen);
+  }
 }
 
 void setup() {
@@ -216,11 +259,29 @@ void setup() {
 
 void loop() {
   static uint32_t last_poll = 0;
+  static uint32_t last_tick = 0;
   lv_timer_handler();
+
   uint32_t nowMs = millis();
   if (nowMs - last_poll >= POLL_INTERVAL_MS || last_poll == 0) {
     last_poll = nowMs;
     poll_once();
+  }
+
+  // phase 4: ease the hero toward the confirmed total a few times a second between
+  // polls — the motion budget keeps it to the hero plus a slow glow, nothing more.
+  if (nowMs - last_tick >= 50) {
+    last_tick = nowMs;
+    // Close ~12% of the remaining gap each step → smooth ease that settles by next poll.
+    usage::tickerStep(g_ticker, 0.12);
+    renderHeroTick();
+    // Subtle active-machine glow: a slow opacity pulse on the hero when something burns.
+    if (g_activeMachine[0] != '\0') {
+      uint8_t pulse = 200 + static_cast<uint8_t>(55.0 * (0.5 + 0.5 * sinf(nowMs / 600.0f)));
+      lv_obj_set_style_text_opa(g_hero, pulse, LV_PART_MAIN);
+    } else {
+      lv_obj_set_style_text_opa(g_hero, LV_OPA_COVER, LV_PART_MAIN);
+    }
   }
   delay(5);
 }

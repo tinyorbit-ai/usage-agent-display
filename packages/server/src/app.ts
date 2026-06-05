@@ -88,6 +88,8 @@ export function createApp(deps: AppDeps): App {
       received_at: nowMs,
     }));
     db.upsertMany(stored);
+    // phase 4: sample the machine's new running total so burn deltas can be bucketed.
+    db.recordSample(machine_id, nowMs, db.machineDailyTotal(machine_id));
     logger.info("ingest accepted", { machine_id, rows: stored.length });
     return json({ ok: true, accepted: stored.length });
   }

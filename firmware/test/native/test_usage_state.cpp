@@ -148,6 +148,56 @@ int main() {
                          "\"cost\":{\"priced_usd\":10.0,\"budget\":null}}";
   check("no budget configured → flag false", applyFetchResult(DisplayState{}, ok200(noBudget)).overBudget == false);
 
+  // --- phase 4: bounded hero interpolation ---
+  std::printf("\nphase-4 ticker interpolation:\n");
+
+  Ticker t;
+  tickerConfirm(t, 1000);
+  check("first confirm initializes displayed=target", t.displayed == 1000 && t.target == 1000);
+
+  // A higher confirmed total raises the target; stepping eases up, never above it.
+  tickerConfirm(t, 1500);
+  check("higher confirm raises target, not displayed yet", t.target == 1500 && t.displayed == 1000);
+  tickerStep(t, 0.5);
+  check("step eases displayed up toward target", t.displayed == 1250);
+  tickerStep(t, 1.0);
+  check("step reaches but never exceeds target", t.displayed == 1500);
+  tickerStep(t, 1.0);
+  check("further steps never push above the confirmed total", t.displayed == 1500);
+
+  // A LOWER confirmed total is an explicit reset (snap), not a backward ease.
+  tickerConfirm(t, 800);
+  check("downward correction resets displayed immediately", t.displayed == 800 && t.target == 800);
+
+  // Bound invariant: across an arbitrary sequence, displayed is NEVER above target.
+  Ticker t2;
+  long long confirms[] = {0, 50, 50, 200, 199, 5000, 4000};
+  bool everAbove = false;
+  for (long long c : confirms) {
+    tickerConfirm(t2, c);
+    tickerStep(t2, 0.3);
+    if (t2.displayed > t2.target) everAbove = true;
+  }
+  check("displayed is never interpolated above the last confirmed total", !everAbove);
+
+  // A small gap must still close — integer truncation must not stall below target.
+  Ticker t3;
+  tickerConfirm(t3, 100);
+  tickerConfirm(t3, 105); // gap of 5; 5 * 0.12 truncates to 0
+  for (int i = 0; i < 10; i++) tickerStep(t3, 0.12);
+  check("a small gap eventually reaches target (no stall)", t3.displayed == 105);
+
+  // Gap: empty sparkline buckets are preserved exactly through parsing (real gaps).
+  const char* spark = "{\"totals\":{\"tokens\":1},\"by_machine\":[{\"machine\":\"a\",\"stale\":false}],"
+                      "\"sparkline_1h\":{\"bucket_seconds\":60,\"buckets\":[5,0,0,7]}}";
+  ParsedSummary ps;
+  bool parsedSpark = parseSummary(spark, std::strlen(spark), ps);
+  check("sparkline parses to the exact bucket array incl. zero gaps",
+        parsedSpark && ps.sparkCount == 4 && ps.sparkBuckets[0] == 5 &&
+        ps.sparkBuckets[1] == 0 && ps.sparkBuckets[2] == 0 && ps.sparkBuckets[3] == 7);
+  DisplayState sparkState = applyFetchResult(DisplayState{}, ok200(spark));
+  check("body with a sparkline still classifies Live", classifyPanel(sparkState) == PanelKind::Live);
+
   std::printf("\n%s (%d failure%s)\n", g_failures == 0 ? "PASS" : "FAIL", g_failures, g_failures == 1 ? "" : "s");
   if (g_failures > 0) { std::printf("last state kind=%s\n", kindName(s.kind)); }
   return g_failures == 0 ? 0 : 1;

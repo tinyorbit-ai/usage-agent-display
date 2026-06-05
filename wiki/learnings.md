@@ -10,6 +10,34 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-06 — Phase 4 — "Append-only" must be enforced by the schema, not the comment
+- **Found:** (Codex, high) The samples table was documented append-only but keyed on
+  `(machine_id, received_at)` with `ON CONFLICT DO UPDATE`, so two same-millisecond
+  ingests collapsed — potentially erasing a delta and skewing active_machine.
+- **Fixed:** Real autoincrement `id` primary key (rowid table), plain INSERT, order by
+  `(machine_id, received_at, id)`, boundary by `MAX(id)`.
+- **Rule to remember:** If you call a table append-only, give it an autoincrement key —
+  a natural composite key with upsert is the opposite of append-only and silently merges.
+
+## 2026-06-06 — Phase 4 — Integer easing truncates to a permanent stall
+- **Found:** (Codex, med) `tickerStep` advanced by `floor(gap * fraction)`, which is 0
+  for small gaps (1–8 at a 0.12 step) — the hero would sit permanently 1–8 below the
+  confirmed total. The bounds invariant held, so no test caught it.
+- **Fixed:** Advance by at least 1 token when there's a gap and any forward progress;
+  added a small-gap "must reach target" test.
+- **Rule to remember:** Integer interpolation needs a minimum step or a fractional
+  remainder, or it stalls short of target. Test convergence (reaches target), not just
+  the bound (never overshoots).
+
+## 2026-06-06 — Phase 4 — Assert exact positions, not just totals/non-emptiness
+- **Found:** (Codex, med) The sparkline test asserted total burn and which values were
+  non-zero, so a reversed or off-by-one bucketing would still pass; the firmware "gap"
+  test only checked panel classification, never that zero buckets survived parsing.
+- **Fixed:** Assert exact bucket indexes server-side; parse the sparkline in the
+  host-tested core and assert `[5,0,0,7]` survives unchanged (gaps preserved).
+- **Rule to remember:** For ordered/positional data (time-series, buckets), assert the
+  exact array/indexes — totals and "is non-empty" let reversal and off-by-one through.
+
 ## 2026-06-06 — Phase 3 — Loose substring matching silently mis-prices unknown models
 - **Found:** (Codex, high) The price table matched models by substring (with a bare
   `"gpt"` catch-all), so `local-gpt-proxy`, `gpt-oss-120b`, `opus-compatible-test` got

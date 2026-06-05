@@ -133,9 +133,16 @@ async function main(): Promise<void> {
       fail("cost.projection.eod_usd must be present and non-negative");
     }
 
+    // phase 4: the live series is present and well-formed.
+    if (!summary.sparkline_1h || summary.sparkline_1h.buckets.length !== 60) {
+      fail(`expected a 60-bucket sparkline, got ${summary.sparkline_1h?.buckets.length}`);
+    }
+    if (!("active_machine" in summary)) fail("expected an active_machine field");
+
     console.log(`✓ e2e PASS — combined daily total = ${summary.totals.tokens} (dedup + daily-only + 2 machines)`);
     console.log(`  v2 breakdowns consistent: by_machine & by_provider both sum to the hero`);
     console.log(`  cost instrument: priced $${summary.cost.priced_usd.toFixed(4)} (v${summary.cost.pricing_version}), partial=${summary.cost.partial}`);
+    console.log(`  live: ${summary.sparkline_1h.buckets.length} sparkline buckets, active_machine=${summary.active_machine}`);
   } finally {
     server.stop();
     db.close();

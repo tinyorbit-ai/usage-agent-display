@@ -83,7 +83,8 @@ fields without breaking older firmware:
     "projection": { "eod_usd": 0, "month_usd": 0 },             // linear from elapsed fraction
     "budget": { "limit_usd": 0, "used_pct": 0, "over_budget": false } // or null
   },
-  // phase 4+: sparkline_1h[] (token buckets), active_machine
+  "sparkline_1h": { "bucket_seconds": 60, "buckets": [0, 0, 0] }, // phase 4 — 1h burn series
+  "active_machine": "mbp-14"                                       // most recent positive delta, or null
 }
 ```
 

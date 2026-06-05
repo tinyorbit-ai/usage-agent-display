@@ -3,6 +3,31 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 4 — Make it live (mission-control feel)
+**Branch:** `phase/4-live` → squashed to `main` (`09cfabd`)
+
+- The panel feels alive: a rolling **1h token-burn sparkline** (`sparkline_1h`) and
+  `active_machine`. Server records an **append-only sample** of each machine's monotonic
+  running total per ingest (`total_samples`, 2h retention); `live.ts` buckets the
+  **deltas** between samples into the burn series and sets `active_machine` = the machine
+  with the **most recent positive delta** in the window (not the last-synced daemon).
+- Firmware: a host-tested **`Ticker`** eases the hero toward the last confirmed total —
+  **never above it** — with a downward correction as an **explicit reset**; LVGL
+  sparkline chart + active-machine glow; restrained motion budget. Transport stays
+  fast-poll + interpolation, not SSE ([[decisions/0010-live-transport]]).
+- **Why notable:** "live" is a *feel* delivered by bounded interpolation, never by
+  showing un-confirmed numbers; empty buckets are real gaps (0), never phantom burn.
+- **Review (Codex) fixed 3** (1 high): made the samples table genuinely append-only
+  (autoincrement id, not `(machine,received_at)`+upsert that collapsed same-ms ingests);
+  fixed ticker integer-truncation stall (advance ≥1); tightened tests to assert exact
+  sparkline bucket indexes + gaps-preserved in the core. Lessons in [[learnings]].
+- **Gate:** `bun run gate` — 105 unit tests incl. exact sparkline bucketing (idx 57=200,
+  59=50, rest 0), active-machine-not-last-synced, ticker bounds + small-gap convergence
+  + sparkline-gap parse (host core) + e2e (60-bucket series present) — **green**.
+- **Hardware/visual half (pending, non-blocking):** generate agent activity → the burn
+  number animates up, the sparkline scrolls, the active machine glows; downward
+  correction resets cleanly — confirmed at the board.
+
 ## Phase 3 — Cost as an instrument
 **Branch:** `phase/3-cost-instrument` → squashed to `main` (`b015a7a`)
 

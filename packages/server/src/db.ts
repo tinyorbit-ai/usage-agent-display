@@ -55,6 +55,15 @@ export interface ModelCategoryTokens {
   tokens: number;
 }
 
+/** A point-in-time sample of a machine's running cumulative daily token total. */
+export interface TotalSample {
+  /** append-only sequence id — breaks received_at ties deterministically. */
+  id: number;
+  machine_id: string;
+  received_at: number;
+  total_tokens: number;
+}
+
 /**
  * Owns the SQLite handle and the prepared statements. Construct with `":memory:"`
  * in tests, a file path in production.
@@ -73,6 +82,11 @@ export class Db {
   private readonly monthStmt: Statement<{ tokens: number; cost_usd: number }, [string]>;
   private readonly sessionStmt: Statement<SessionRollup, []>;
   private readonly tokensByModelCatStmt: Statement<ModelCategoryTokens, [number, string]>;
+  private readonly machineDailyTotalStmt: Statement<{ total: number | null }, [string]>;
+  private readonly recordSampleStmt: Statement;
+  private readonly pruneSamplesStmt: Statement;
+  private readonly samplesInWindowStmt: Statement<TotalSample, [number]>;
+  private readonly boundarySamplesStmt: Statement<TotalSample, [number]>;
 
   constructor(path = ":memory:") {
     this.handle = new Database(path);
@@ -205,6 +219,38 @@ export class Db {
         WHERE report_type = 'daily' AND substr(bucket, 1, ?) = ?
         GROUP BY model, token_category;`,
     );
+
+    // --- phase 4: token-burn time-series. A machine's all-time DAILY total is
+    // monotonic (cumulative), so the delta between two samples is the burn between
+    // them. We sample on each ingest and bucket the deltas into the 1h window. ---
+
+    this.machineDailyTotalStmt = this.handle.query(
+      `SELECT CAST(COALESCE(SUM(tokens), 0) AS INTEGER) AS total
+         FROM snapshots WHERE report_type = 'daily' AND machine_id = ?;`,
+    );
+
+    this.recordSampleStmt = this.handle.query(
+      `INSERT INTO total_samples (machine_id, received_at, total_tokens) VALUES (?, ?, ?);`,
+    );
+
+    this.pruneSamplesStmt = this.handle.query(
+      `DELETE FROM total_samples WHERE received_at < ?;`,
+    );
+
+    this.samplesInWindowStmt = this.handle.query(
+      `SELECT id, machine_id, received_at, total_tokens
+         FROM total_samples WHERE received_at >= ?
+        ORDER BY machine_id, received_at, id;`,
+    );
+
+    // The single latest-recorded sample strictly before the window per machine (by
+    // append order = MAX(id)), so the first in-window delta has a correct baseline.
+    this.boundarySamplesStmt = this.handle.query(
+      `SELECT id, machine_id, received_at, total_tokens FROM total_samples
+        WHERE id IN (
+          SELECT MAX(id) FROM total_samples WHERE received_at < ? GROUP BY machine_id
+        );`,
+    );
   }
 
   private migrate(): void {
@@ -227,6 +273,21 @@ export class Db {
         PRIMARY KEY (machine_id, provider, model, token_category, report_type, bucket)
       ) WITHOUT ROWID;
     `);
+
+    // Append-only samples of each machine's running cumulative daily total, for the
+    // phase-4 burn sparkline + active-machine. Pruned to a small retention window.
+    // A true autoincrement id means same-millisecond ingests are NOT collapsed (Codex
+    // catch) and ties order deterministically by insertion.
+    this.handle.exec(`
+      CREATE TABLE IF NOT EXISTS total_samples (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        machine_id   TEXT    NOT NULL,
+        received_at  INTEGER NOT NULL,
+        total_tokens INTEGER NOT NULL
+      );
+    `);
+    this.handle.exec(`CREATE INDEX IF NOT EXISTS idx_samples_received ON total_samples (received_at);`);
+    this.handle.exec(`CREATE INDEX IF NOT EXISTS idx_samples_machine ON total_samples (machine_id, received_at, id);`);
   }
 
   /** Insert/replace many rows atomically; partial application is impossible. */
@@ -295,6 +356,38 @@ export class Db {
    */
   tokensByModelCategory(bucketPrefix = ""): ModelCategoryTokens[] {
     return this.tokensByModelCatStmt.all(bucketPrefix.length, bucketPrefix);
+  }
+
+  /** A machine's all-time cumulative daily token total (monotonic). */
+  machineDailyTotal(machineId: string): number {
+    return this.machineDailyTotalStmt.get(machineId)?.total ?? 0;
+  }
+
+  /**
+   * Record a sample of a machine's running total at `receivedAt`, then prune samples
+   * older than `retentionMs` before it. Called once per ingest.
+   */
+  recordSample(machineId: string, receivedAt: number, total: number, retentionMs = 2 * 3600_000): void {
+    this.recordSampleStmt.run(machineId, receivedAt, total);
+    this.pruneSamplesStmt.run(receivedAt - retentionMs);
+  }
+
+  /**
+   * Samples needed to compute burn over `[windowStart, ∞)`: every in-window sample
+   * plus, per machine, the latest sample strictly before the window (so the first
+   * in-window delta is correct). Returned sorted by machine then time.
+   */
+  samplesForWindow(windowStart: number): TotalSample[] {
+    const boundary = this.boundarySamplesStmt.all(windowStart);
+    const inWindow = this.samplesInWindowStmt.all(windowStart);
+    const all = [...boundary, ...inWindow];
+    all.sort((a, b) =>
+      a.machine_id < b.machine_id ? -1
+      : a.machine_id > b.machine_id ? 1
+      : a.received_at !== b.received_at ? a.received_at - b.received_at
+      : a.id - b.id,
+    );
+    return all;
   }
 
   close(): void {

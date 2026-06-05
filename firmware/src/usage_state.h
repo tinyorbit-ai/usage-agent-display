@@ -64,6 +64,9 @@ struct DisplayState {
   bool overBudget = false;  // phase 3: budget configured and exceeded
 };
 
+// Max sparkline buckets we render/store (1h / 60s = 60).
+static const int kMaxSparkBuckets = 64;
+
 // Parsed view of one v2 summary body.
 struct ParsedSummary {
   long long tokens = 0;
@@ -71,6 +74,8 @@ struct ParsedSummary {
   int machineCount = 0;
   int staleCount = 0;
   bool overBudget = false;  // phase 3: cost.budget.over_budget (false when no budget)
+  int sparkCount = 0;       // phase 4: number of sparkline buckets parsed
+  long sparkBuckets[kMaxSparkBuckets] = {0};  // burn per bucket — zeros are real gaps
 };
 
 // Parse a v2 summary body. Returns true and fills `out` on success; false on
@@ -108,6 +113,16 @@ inline bool parseSummary(const char* body, size_t len, ParsedSummary& out) {
   // phase 3: a configured-and-exceeded budget. Absent budget → false.
   JsonVariant budget = doc["cost"]["budget"];
   out.overBudget = !budget.isNull() && budget["over_budget"].is<bool>() && budget["over_budget"].as<bool>();
+
+  // phase 4: sparkline buckets, preserved exactly — a 0 is a real gap, not dropped.
+  out.sparkCount = 0;
+  JsonArray spark = doc["sparkline_1h"]["buckets"].as<JsonArray>();
+  if (!spark.isNull()) {
+    for (JsonVariant v : spark) {
+      if (out.sparkCount >= kMaxSparkBuckets) break;
+      out.sparkBuckets[out.sparkCount++] = v.as<long>();
+    }
+  }
   return true;
 }
 
@@ -146,6 +161,54 @@ inline DisplayState applyFetchResult(const DisplayState& prev, const FetchResult
   next.overBudget = p.overBudget;
   next.hasValue = true;
   return next;
+}
+
+// --- phase 4: bounded hero interpolation (the "ticking" number) ---
+//
+// The displayed hero eases UP toward the last confirmed total between polls but is
+// NEVER shown above it (no phantom burn). A higher confirmed total raises the target
+// (ease up); a LOWER confirmed total — a correction or day-rollover — is an explicit
+// reset (snap down), not a backward tick. Pure + host-tested (ADR 0010).
+struct Ticker {
+  long long displayed = 0;
+  long long target = 0;
+  bool initialized = false;
+};
+
+// Apply a freshly confirmed total from a poll.
+inline void tickerConfirm(Ticker& t, long long confirmedTotal) {
+  if (confirmedTotal < 0) return; // ignore garbage; core already rejects these upstream
+  if (!t.initialized) {
+    t.displayed = confirmedTotal;
+    t.target = confirmedTotal;
+    t.initialized = true;
+    return;
+  }
+  if (confirmedTotal >= t.target) {
+    t.target = confirmedTotal; // ease up toward the new, higher confirmed total
+  } else {
+    // Downward correction / day rollover → explicit reset, never a backward ease.
+    t.displayed = confirmedTotal;
+    t.target = confirmedTotal;
+  }
+}
+
+// Advance the displayed value a step toward target. `fraction` in [0,1] is how far to
+// close the remaining gap this frame. Result is clamped to target — never above it.
+inline void tickerStep(Ticker& t, double fraction) {
+  if (!t.initialized || t.displayed >= t.target) {
+    t.displayed = t.target;
+    return;
+  }
+  if (fraction < 0) fraction = 0;
+  if (fraction > 1) fraction = 1;
+  long long gap = t.target - t.displayed;
+  long long advance = static_cast<long long>(static_cast<double>(gap) * fraction);
+  // Integer truncation would stall a small gap (1..8 at 0.12) forever below target —
+  // always close at least one token when there is a gap and any forward progress.
+  if (advance < 1 && fraction > 0) advance = 1;
+  long long advanced = t.displayed + advance;
+  t.displayed = advanced < t.target ? advanced : t.target; // never overshoot confirmed
 }
 
 // Classify the designed panel state from the display state. Pure. Drives which tile
