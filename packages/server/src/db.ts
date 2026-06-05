@@ -48,6 +48,13 @@ export interface SessionRollup {
   cost_usd: number;
 }
 
+/** A (model, token_category) token total — the unit our price table prices. */
+export interface ModelCategoryTokens {
+  model: string;
+  token_category: TokenCategory;
+  tokens: number;
+}
+
 /**
  * Owns the SQLite handle and the prepared statements. Construct with `":memory:"`
  * in tests, a file path in production.
@@ -65,6 +72,7 @@ export class Db {
   private readonly byMachineDailyStmt: Statement<MachineDaily, []>;
   private readonly monthStmt: Statement<{ tokens: number; cost_usd: number }, [string]>;
   private readonly sessionStmt: Statement<SessionRollup, []>;
+  private readonly tokensByModelCatStmt: Statement<ModelCategoryTokens, [number, string]>;
 
   constructor(path = ":memory:") {
     this.handle = new Database(path);
@@ -187,6 +195,16 @@ export class Db {
         ORDER BY MAX(activity) DESC, MAX(last) DESC
         LIMIT 1;`,
     );
+
+    // Daily tokens summed per (model, token_category) for pricing. The first two params
+    // scope by date-bucket prefix: (0, '') is all-time (substr(...,1,0)='' is always
+    // true), (7, 'YYYY-MM') is a month, (10, 'YYYY-MM-DD') is one day.
+    this.tokensByModelCatStmt = this.handle.query(
+      `SELECT model, token_category, CAST(SUM(tokens) AS INTEGER) AS tokens
+         FROM snapshots
+        WHERE report_type = 'daily' AND substr(bucket, 1, ?) = ?
+        GROUP BY model, token_category;`,
+    );
   }
 
   private migrate(): void {
@@ -269,6 +287,14 @@ export class Db {
   /** The currently-active session's rollup, or null if no session data. */
   activeSession(): SessionRollup | null {
     return this.sessionStmt.get() ?? null;
+  }
+
+  /**
+   * Daily tokens per (model, token_category), optionally scoped to a date-bucket
+   * prefix: `""` = all-time, `"YYYY-MM"` = a month, `"YYYY-MM-DD"` = one day.
+   */
+  tokensByModelCategory(bucketPrefix = ""): ModelCategoryTokens[] {
+    return this.tokensByModelCatStmt.all(bucketPrefix.length, bucketPrefix);
   }
 
   close(): void {

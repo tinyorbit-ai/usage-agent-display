@@ -10,6 +10,19 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-06 — Phase 3 — Loose substring matching silently mis-prices unknown models
+- **Found:** (Codex, high) The price table matched models by substring (with a bare
+  `"gpt"` catch-all), so `local-gpt-proxy`, `gpt-oss-120b`, `opus-compatible-test` got
+  confidently priced — defeating the whole "unknown model → unpriced, never $0" honesty.
+  The test only proved one obviously-unknown name was unpriced.
+- **Fixed:** Anchored matching — a Claude model must START with "claude" and name a known
+  family; OpenAI/Codex must match a prefix (`gpt-5|gpt-4|o1|o3|codex`); everything else is
+  unpriced. Added negative fixtures (substring-but-not-canonical names stay unpriced) and
+  real-name fixtures. Verified against real ccusage: opus/sonnet/haiku-4-5/opus-4-8 all price.
+- **Rule to remember:** Classifying by `includes(substring)` over open-string identifiers
+  is a silent-misclassification trap — anchor to a known prefix/structure, and test the
+  *negative* (lookalikes that must NOT match), not just one happy unknown.
+
 ## 2026-06-05 — Phase 2 — "Most recent" needs a real activity time, not arrival order
 - **Found:** (Codex, high) The active-session pick ordered by `received_at`, but one
   ccusage poll returns ALL sessions → one ingest stamps them with the SAME received_at

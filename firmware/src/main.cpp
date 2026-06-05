@@ -112,9 +112,29 @@ static void renderTiles(const char* body, size_t len) {
   formatTokens(doc["totals"]["tokens"].as<long long>(), heroText, sizeof(heroText));
   lv_label_set_text(g_hero, heroText);
 
-  char costText[32];
-  snprintf(costText, sizeof(costText), "$%.2f", doc["totals"]["cost_usd"].as<double>());
+  // Cost instrument (phase 3): priced spend, EOD/month projection, budget. The "~"
+  // marks an estimate that is partial (unpriced models present), so it reads honestly.
+  JsonObject cost = doc["cost"].as<JsonObject>();
+  char costText[80];
+  if (cost.isNull()) {
+    snprintf(costText, sizeof(costText), "$%.2f", doc["totals"]["cost_usd"].as<double>());
+  } else {
+    const char* est = cost["partial"].as<bool>() ? "~" : "";
+    double eod = cost["projection"]["eod_usd"].as<double>();
+    double mtd = cost["projection"]["month_usd"].as<double>();
+    char budget[24] = "";
+    if (!cost["budget"].isNull()) {
+      snprintf(budget, sizeof(budget), "  %.0f%%%s", cost["budget"]["used_pct"].as<double>(),
+               cost["budget"]["over_budget"].as<bool>() ? " OVER" : "");
+    }
+    snprintf(costText, sizeof(costText), "%s$%.2f  eod $%.0f  mo $%.0f%s",
+             est, cost["priced_usd"].as<double>(), eod, mtd, budget);
+  }
   lv_label_set_text(g_cost, costText);
+  // Over-budget tints the cost line so it's a glanceable alert (with the OVER word too).
+  lv_obj_set_style_text_color(g_cost,
+      (!cost.isNull() && !cost["budget"].isNull() && cost["budget"]["over_budget"].as<bool>())
+          ? lv_color_hex(0xCC4444) : lv_color_hex(0xBBBBBB), LV_PART_MAIN);
 
   // Providers (CC vs Codex).
   char prov[64] = "";

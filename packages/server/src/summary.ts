@@ -5,17 +5,23 @@
  * in different zones roll up consistently. See wiki/architecture.md / ADR 0008.
  */
 import type {
+  Budget,
+  CostInstrument,
   MachineBreakdown,
   ProviderBreakdown,
   UsageSummary,
 } from "@usage/shared";
 import type { Db } from "./db.ts";
+import { PRICING_VERSION, priceTokens } from "./pricing.ts";
+import { fractionOfDay, fractionOfMonth, project, reckoningDay } from "./projection.ts";
 
 export interface SummaryConfig {
   /** a machine with nothing newer than this many seconds is flagged stale. */
   staleAfterSeconds: number;
   /** IANA timezone the server reckons "this month" / "today" in. */
   timezone: string;
+  /** optional monthly budget in USD; null disables the budget line. */
+  budgetUsd?: number | null;
 }
 
 /** The reckoning month `YYYY-MM` for an instant, in the declared timezone. */
@@ -78,6 +84,46 @@ export function buildSummary(db: Db, nowMs: number, config: SummaryConfig): Usag
         ? null
         : { machine: session.machine_id, tokens: session.tokens, cost_usd: session.cost_usd },
     month: { month, tokens: monthRollup.tokens, cost_usd: monthRollup.cost_usd },
+    cost: buildCostInstrument(db, nowMs, config, month),
+  };
+}
+
+/** Price the stored token rows with our table, project, and apply the budget. */
+function buildCostInstrument(
+  db: Db,
+  nowMs: number,
+  config: SummaryConfig,
+  month: string,
+): CostInstrument {
+  // NOTE: today/month/budget select daily rows by date-bucket prefix in the declared
+  // timezone, but the buckets themselves are producer-local dates (ccusage has no
+  // intra-day timestamps). So projection and budget inherit the same boundary
+  // limitation as month-to-date — documented at db.monthStmt and in wiki/improvements.
+  const allTime = priceTokens(db.tokensByModelCategory(""));
+  const today = reckoningDay(nowMs, config.timezone);
+  const todaySpend = priceTokens(db.tokensByModelCategory(today)).priced_usd;
+  const monthSpend = priceTokens(db.tokensByModelCategory(month)).priced_usd;
+
+  const budgetLimit = config.budgetUsd ?? null;
+  const budget: Budget | null =
+    budgetLimit === null || budgetLimit <= 0
+      ? null
+      : {
+          limit_usd: budgetLimit,
+          used_pct: (monthSpend / budgetLimit) * 100,
+          over_budget: monthSpend > budgetLimit,
+        };
+
+  return {
+    pricing_version: PRICING_VERSION,
+    priced_usd: allTime.priced_usd,
+    unpriced_tokens: allTime.unpriced_tokens,
+    partial: allTime.unpriced_tokens > 0,
+    projection: {
+      eod_usd: project(todaySpend, fractionOfDay(nowMs, config.timezone)),
+      month_usd: project(monthSpend, fractionOfMonth(nowMs, config.timezone)),
+    },
+    budget,
   };
 }
 

@@ -133,6 +133,21 @@ int main() {
   check("fetch fails after live → Panel Disconnected", classifyPanel(disc) == PanelKind::Disconnected);
   check("Disconnected retains last-good tokens", disc.tokens == 500);
 
+  // --- phase 3: cost instrument / over-budget flag ---
+  std::printf("\nphase-3 cost instrument:\n");
+  const char* over = "{\"totals\":{\"tokens\":9},\"by_machine\":[{\"machine\":\"a\",\"stale\":false}],"
+                     "\"cost\":{\"priced_usd\":75.0,\"budget\":{\"limit_usd\":50,\"used_pct\":150,\"over_budget\":true}}}";
+  DisplayState overState = applyFetchResult(DisplayState{}, ok200(over));
+  check("over-budget flag parsed from cost.budget", overState.overBudget == true);
+
+  const char* under = "{\"totals\":{\"tokens\":9},\"by_machine\":[{\"machine\":\"a\",\"stale\":false}],"
+                      "\"cost\":{\"priced_usd\":10.0,\"budget\":{\"limit_usd\":50,\"used_pct\":20,\"over_budget\":false}}}";
+  check("under-budget → flag false", applyFetchResult(DisplayState{}, ok200(under)).overBudget == false);
+
+  const char* noBudget = "{\"totals\":{\"tokens\":9},\"by_machine\":[{\"machine\":\"a\",\"stale\":false}],"
+                         "\"cost\":{\"priced_usd\":10.0,\"budget\":null}}";
+  check("no budget configured → flag false", applyFetchResult(DisplayState{}, ok200(noBudget)).overBudget == false);
+
   std::printf("\n%s (%d failure%s)\n", g_failures == 0 ? "PASS" : "FAIL", g_failures, g_failures == 1 ? "" : "s");
   if (g_failures > 0) { std::printf("last state kind=%s\n", kindName(s.kind)); }
   return g_failures == 0 ? 0 : 1;

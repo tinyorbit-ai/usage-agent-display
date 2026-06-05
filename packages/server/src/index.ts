@@ -25,10 +25,13 @@ const timezone =
   process.env.USAGE_RECKONING_TZ ??
   Intl.DateTimeFormat().resolvedOptions().timeZone ??
   "UTC";
+// Optional monthly budget; absent/0 disables the budget line.
+const budgetRaw = Number(process.env.USAGE_BUDGET_USD ?? 0);
+const budgetUsd = Number.isFinite(budgetRaw) && budgetRaw > 0 ? budgetRaw : null;
 
 const db = new Db(dbPath);
 const logger = makeLogger();
-const app = createApp({ db, token, logger, summary: { staleAfterSeconds, timezone } });
+const app = createApp({ db, token, logger, summary: { staleAfterSeconds, timezone, budgetUsd } });
 
 const server = Bun.serve({ port, fetch: app.fetch });
 logger.info("server listening", { port: server.port, db: dbPath });

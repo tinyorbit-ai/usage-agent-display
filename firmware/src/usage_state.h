@@ -61,6 +61,7 @@ struct DisplayState {
   bool hasValue = false;
   int machineCount = 0;  // machines present in the last good summary
   int staleCount = 0;    // of those, how many were flagged stale
+  bool overBudget = false;  // phase 3: budget configured and exceeded
 };
 
 // Parsed view of one v2 summary body.
@@ -69,6 +70,7 @@ struct ParsedSummary {
   double cost_usd = 0.0;
   int machineCount = 0;
   int staleCount = 0;
+  bool overBudget = false;  // phase 3: cost.budget.over_budget (false when no budget)
 };
 
 // Parse a v2 summary body. Returns true and fills `out` on success; false on
@@ -102,6 +104,10 @@ inline bool parseSummary(const char* body, size_t len, ParsedSummary& out) {
       if (m["stale"].is<bool>() && m["stale"].as<bool>()) out.staleCount++;
     }
   }
+
+  // phase 3: a configured-and-exceeded budget. Absent budget → false.
+  JsonVariant budget = doc["cost"]["budget"];
+  out.overBudget = !budget.isNull() && budget["over_budget"].is<bool>() && budget["over_budget"].as<bool>();
   return true;
 }
 
@@ -137,6 +143,7 @@ inline DisplayState applyFetchResult(const DisplayState& prev, const FetchResult
   next.cost_usd = p.cost_usd;
   next.machineCount = p.machineCount;
   next.staleCount = p.staleCount;
+  next.overBudget = p.overBudget;
   next.hasValue = true;
   return next;
 }

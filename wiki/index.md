@@ -26,6 +26,7 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 - [[decisions/0006-cost-attribution-grain]] — replicate cost per category row, de-dup per model/bucket when summing
 - [[decisions/0007-firmware-host-testable-core]] — pure host-compilable firmware core, no emulator
 - [[decisions/0008-display-design-system]] — type scale, palette, state→non-color-signal mapping (phase 2)
+- [[decisions/0009-pricing-source-and-projection]] — own price table over granular rows; unknown→unpriced; linear projection (phase 3)
 
 ### Incident notes
 

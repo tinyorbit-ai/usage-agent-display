@@ -34,3 +34,16 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
   collecting raw per-event timestamps (a direct-parse collector, its own ADR) instead of
   ccusage's pre-aggregated daily rows. Deferred — the current behavior is the best
   available from ccusage and is documented at the query (Codex phase-2 review).
+
+## Phase 3
+
+- **Projection & budget inherit the producer-bucket TZ limit.** EOD/month projection and
+  the budget's MTD selection pick daily rows by date-bucket prefix in the declared TZ,
+  but the buckets are producer-local dates — so near a day/month boundary a far-TZ
+  machine's rows may fall on the "wrong" side. Same root cause and same deferral as the
+  month-to-date note above (Codex phase-3 review). Fixing needs raw timestamps.
+- **The price table is a flat current-rate estimate, not historical.** All-time
+  `priced_usd` values every stored token at today's table rate, so it diverges from
+  ccusage's per-period cost (which used the rates in effect then). Acceptable for an
+  instrument — it's stamped with `PRICING_VERSION` and ADR 0009 calls it an estimate —
+  but a true historical cost would need per-period rate tables.

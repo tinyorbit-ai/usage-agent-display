@@ -3,6 +3,30 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 3 — Cost as an instrument
+**Branch:** `phase/3-cost-instrument` → squashed to `main` (`b015a7a`)
+
+- New `cost` block on the summary: **priced from our own versioned per-model/per-category
+  table** (`pricing.ts`) over the granular rows stored since phase 1 — not ccusage's
+  number. **EOD/month projection** (`projection.ts`, linear from elapsed fraction in the
+  declared TZ, clamped early) and an optional **monthly budget** (`USAGE_BUDGET_USD`) with
+  `used_pct` + `over_budget`. Firmware core parses `over_budget` (host-tested); the cost
+  tile renders priced/eod/month + budget % and tints red when over.
+- **Why notable:** an unknown model is **never priced at $0** — its tokens surface as
+  `unpriced_tokens` and the estimate is flagged `partial`, so the panel is honest about
+  uncertainty. Pricing is a stamped estimate (`PRICING_VERSION`), not billing truth
+  ([[decisions/0009-pricing-source-and-projection]]).
+- **Review (Codex) fixed 3** (1 high): replaced loose substring model-matching (which
+  mis-priced `local-gpt-proxy`/`opus-compatible-test`) with **anchored** vendor+family
+  matching + negative fixtures; documented that projection/budget inherit the
+  producer-bucket TZ limit. Lessons in [[learnings]].
+- **Gate:** `bun run gate` — 100 unit tests incl. pricing (known + anchored-unknown +
+  distinct cache categories), projection math + through-summary, budget used_pct/
+  over_budget + firmware over-budget matrix + e2e (cost block present & consistent) —
+  **green**. Real ccusage: all 4 distinct models price, 0 unpriced; budget 166% over.
+- **Hardware/visual half (pending, non-blocking):** cost tile shows spend + EOD/month
+  projection; budget burndown/over-budget renders — confirmed at the board.
+
 ## Phase 2 — The full tile layout (metric hierarchy on screen)
 **Branch:** `phase/2-tile-hierarchy` → squashed to `main` (`3860ab6`)
 

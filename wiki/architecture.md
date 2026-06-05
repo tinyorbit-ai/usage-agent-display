@@ -77,7 +77,12 @@ fields without breaking older firmware:
                     "age_seconds": 27, "stale": false }],      // stale degrades gracefully
   "session": { "machine": "mbp-14", "tokens": 0, "cost_usd": 0 }, // or null — active session
   "month":   { "month": "2026-06", "tokens": 0, "cost_usd": 0 },  // reckoned in one TZ
-  // phase 3+: projection{ eod_usd, month_usd }, budget{ limit, used_pct }
+  "cost": {                                                       // phase 3 — instrument
+    "pricing_version": "2026-06-01", "priced_usd": 0,            // priced from our table
+    "unpriced_tokens": 0, "partial": false,                     // unknown models surfaced
+    "projection": { "eod_usd": 0, "month_usd": 0 },             // linear from elapsed fraction
+    "budget": { "limit_usd": 0, "used_pct": 0, "over_budget": false } // or null
+  },
   // phase 4+: sparkline_1h[] (token buckets), active_machine
 }
 ```

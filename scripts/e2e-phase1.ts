@@ -125,8 +125,17 @@ async function main(): Promise<void> {
       fail(`by_provider tokens (${providerSum}) must equal the hero (${summary.totals.tokens})`);
     }
 
+    // phase 3: the cost instrument is present and internally consistent.
+    if (!summary.cost) fail("expected a cost instrument block");
+    if (summary.cost.priced_usd < 0) fail("priced_usd must be non-negative");
+    if (typeof summary.cost.partial !== "boolean") fail("cost.partial must be a boolean");
+    if (!summary.cost.projection || summary.cost.projection.eod_usd < 0) {
+      fail("cost.projection.eod_usd must be present and non-negative");
+    }
+
     console.log(`✓ e2e PASS — combined daily total = ${summary.totals.tokens} (dedup + daily-only + 2 machines)`);
     console.log(`  v2 breakdowns consistent: by_machine & by_provider both sum to the hero`);
+    console.log(`  cost instrument: priced $${summary.cost.priced_usd.toFixed(4)} (v${summary.cost.pricing_version}), partial=${summary.cost.partial}`);
   } finally {
     server.stop();
     db.close();

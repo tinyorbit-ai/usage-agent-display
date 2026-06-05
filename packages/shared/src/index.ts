@@ -108,6 +108,42 @@ export interface MonthToDate {
   cost_usd: number;
 }
 
+/** Linear-extrapolation projection of spend (phase 3). */
+export interface Projection {
+  /** projected spend by end of *today*, at today's pace. */
+  eod_usd: number;
+  /** projected spend by end of *this month*, at the month's pace. */
+  month_usd: number;
+}
+
+/** Optional budget line with burndown (phase 3). */
+export interface Budget {
+  limit_usd: number;
+  /** month-to-date priced spend as a percentage of the limit. */
+  used_pct: number;
+  over_budget: boolean;
+}
+
+/**
+ * Cost as an instrument (phase 3): spend priced from our own per-model, per-category
+ * table over the granular stored rows — NOT trusting ccusage's number — plus honest
+ * handling of models we don't price and forward projection. Tokens stay the hero;
+ * this is the second instrument. See ADR 0009.
+ */
+export interface CostInstrument {
+  /** version of the price table used, so a stale estimate is identifiable. */
+  pricing_version: string;
+  /** all-time priced spend over models present in the table. */
+  priced_usd: number;
+  /** tokens belonging to models ABSENT from the table — surfaced, never priced at $0. */
+  unpriced_tokens: number;
+  /** true when unpriced_tokens > 0, so the panel can show the estimate as partial. */
+  partial: boolean;
+  projection: Projection;
+  /** null when no budget is configured. */
+  budget: Budget | null;
+}
+
 /**
  * The compact `GET /usage/summary` payload the firmware renders. v2 adds the
  * hierarchy breakdowns (provider, machine, session, month) on top of v1's hero.
@@ -123,6 +159,8 @@ export interface UsageSummary {
   by_machine: MachineBreakdown[];
   session: SessionBurn | null;
   month: MonthToDate;
+  /** phase 3 — cost instrument: priced spend, projection, budget. */
+  cost: CostInstrument;
 }
 
 /** Bounds shared by validation on both ends. Generous but finite — DoS ceilings. */
