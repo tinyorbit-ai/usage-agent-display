@@ -10,6 +10,25 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-06 — Retro synthesis — Scrutinize every write to the deduped store
+- **Pattern (across P1/P2/P4/P5):** the single biggest source of high-severity findings
+  was writes to the dedup-keyed store that silently collide or overwrite — destructive
+  floor-to-0, arrival-order vs activity-order, same-ms collapse, duplicate provider keys.
+- **Standing rule:** before shipping any phase that writes to or aggregates the deduped
+  store, answer in the diff: (a) what new collisions does the key admit? (b) what does a
+  malformed/duplicate/repeat input do? (c) does "most recent/latest" order by a real
+  timestamp, not by arrival? Treat this as a build-time checklist, not a review surprise.
+
+## 2026-06-06 — Retro synthesis — Test the regression, not the happy path
+- **Pattern (across P1/P2/P3/P4/P5):** the most recurring review fix was strengthening a
+  test that passed while a real regression would slip through — one-row dedup fixtures,
+  totals instead of exact positions, a line-based grep, a hand-built stand-in for the
+  real registry path.
+- **Standing rule:** for each new test, name the realistic regression that would STILL
+  pass it (a 4× dedup error, a reversed series, an unused code path). If you can't, the
+  test is too weak — test the shape production emits, the real entry point, and exact
+  positions/indexes.
+
 ## 2026-06-06 — Phase 5 — A registry of keys must reject duplicates at build time
 - **Found:** (Codex, high) `buildCollectors` accepted two specs with the same provider
   label; their rows would share the dedup key and silently overwrite each other

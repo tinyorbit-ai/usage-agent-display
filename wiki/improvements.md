@@ -35,6 +35,16 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
   ccusage's pre-aggregated daily rows. Deferred — the current behavior is the best
   available from ccusage and is documented at the query (Codex phase-2 review).
 
+## Retro action items (2026-06-06)
+
+- **Confirm the Codex data source + consider a direct-parse collector.** The provider
+  seam is proven but real Codex usage isn't collected. The fix (raw `~/.codex` /
+  `~/.claude` per-event timestamps) is the SAME unlock as the producer-bucket TZ limit —
+  do them together as one "direct-parse collector" ADR. Biggest functional gap.
+- **Hardware/visual gates pending one board bring-up** — live A→B update (P1), tile
+  states + desaturated-photo legibility (P2), cost tile (P3), sparkline/glow/ticker (P4),
+  unattended full-day run (P5). Batched to the end; board now on USB.
+
 ## Phase 3
 
 - **Projection & budget inherit the producer-bucket TZ limit.** EOD/month projection and
