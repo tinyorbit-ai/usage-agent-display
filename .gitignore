@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Bun
+bun.lockb.bak
+
+# Secrets — never commit (see plan: secrets & supply chain)
+.env
+.env.*
+!.env.example
+config/secrets.h
+firmware/**/secrets.h
+firmware/**/wifi_config.h
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# SQLite local data
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
