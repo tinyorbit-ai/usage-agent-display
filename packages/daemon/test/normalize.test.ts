@@ -89,6 +89,26 @@ describe("normalizeReport — session and monthly buckets", () => {
     expect(rows.every((r) => r.provider === "codex")).toBe(true);
   });
 
+  test("session rows carry activity_at from lastActivity; daily rows do not", () => {
+    const sessionReport = {
+      sessions: [
+        {
+          sessionId: "sess-1",
+          lastActivity: "2026-06-05T11:30:00.000Z",
+          modelBreakdowns: [{ modelName: "opus", outputTokens: 5, cost: 0.1 }],
+        },
+      ],
+    };
+    const { rows } = normalizeReport(sessionReport, "session", "sessions", "claude-code");
+    expect(rows.every((r) => r.activity_at === Date.parse("2026-06-05T11:30:00.000Z"))).toBe(true);
+
+    const dailyReport2 = {
+      daily: [{ date: "2026-06-05", modelBreakdowns: [{ modelName: "opus", outputTokens: 5, cost: 0 }] }],
+    };
+    const { rows: dailyRows } = normalizeReport(dailyReport2, "daily", "daily", "claude-code");
+    expect(dailyRows.every((r) => r.activity_at === undefined)).toBe(true);
+  });
+
   test("monthly uses month as the bucket", () => {
     const report = {
       monthly: [

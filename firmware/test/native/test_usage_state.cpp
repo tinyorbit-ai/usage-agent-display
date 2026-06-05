@@ -103,6 +103,36 @@ int main() {
   DisplayState afterNeg = applyFetchResult(s, ok200("{\"totals\":{\"tokens\":-5}}"));
   check("negative tokens rejected → Placeholder", afterNeg.kind == DisplayKind::Placeholder && afterNeg.tokens == 14200500);
 
+  // --- phase 2: v2 parse + panel classification ---
+  std::printf("\nphase-2 panel classification:\n");
+
+  const char* twoFresh = "{\"totals\":{\"tokens\":500,\"cost_usd\":1.0},\"by_machine\":["
+                         "{\"machine\":\"a\",\"stale\":false},{\"machine\":\"b\",\"stale\":false}]}";
+  DisplayState live2 = applyFetchResult(DisplayState{}, ok200(twoFresh));
+  check("v2 parses machine count + cost", live2.machineCount == 2 && live2.cost_usd == 1.0);
+  check("all machines fresh → Panel Live", classifyPanel(live2) == PanelKind::Live);
+
+  const char* oneStale = "{\"totals\":{\"tokens\":500},\"by_machine\":["
+                         "{\"machine\":\"a\",\"stale\":false},{\"machine\":\"b\",\"stale\":true}]}";
+  DisplayState partial = applyFetchResult(DisplayState{}, ok200(oneStale));
+  check("some stale, some fresh → Panel Partial", classifyPanel(partial) == PanelKind::Partial);
+
+  const char* allStaleBody = "{\"totals\":{\"tokens\":500},\"by_machine\":["
+                             "{\"machine\":\"a\",\"stale\":true},{\"machine\":\"b\",\"stale\":true}]}";
+  DisplayState allStale = applyFetchResult(DisplayState{}, ok200(allStaleBody));
+  check("every machine stale → Panel AllStale", classifyPanel(allStale) == PanelKind::AllStale);
+
+  const char* noMachines = "{\"totals\":{\"tokens\":0},\"by_machine\":[]}";
+  DisplayState empty = applyFetchResult(DisplayState{}, ok200(noMachines));
+  check("live fetch, zero machines → Panel Empty", classifyPanel(empty) == PanelKind::Empty);
+
+  check("boot → Panel Connecting", classifyPanel(DisplayState{}) == PanelKind::Connecting);
+
+  // A fetch failure after we had v2 data → Disconnected (dimmed last-good), counts retained.
+  DisplayState disc = applyFetchResult(live2, FetchResult{FetchKind::NetworkError, 0, nullptr, 0});
+  check("fetch fails after live → Panel Disconnected", classifyPanel(disc) == PanelKind::Disconnected);
+  check("Disconnected retains last-good tokens", disc.tokens == 500);
+
   std::printf("\n%s (%d failure%s)\n", g_failures == 0 ? "PASS" : "FAIL", g_failures, g_failures == 1 ? "" : "s");
   if (g_failures > 0) { std::printf("last state kind=%s\n", kindName(s.kind)); }
   return g_failures == 0 ? 0 : 1;

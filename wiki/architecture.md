@@ -68,11 +68,15 @@ fields without breaking older firmware:
 
 ```jsonc
 {
-  "v": 1,
+  "v": 2,                                                      // phase 2 (was 1)
   "generated_at": "<iso>",
-  "last_sync": { "machine": "mbp-14", "age_seconds": 27 },   // honest freshness
-  "totals": { "tokens": 14200000, "cost_usd": 12.40 },        // hero = tokens
-  // phase 2+: by_provider[], by_machine[], session{}, month{}, window_1h{}
+  "last_sync": { "machine": "mbp-14", "age_seconds": 27 },     // honest freshness
+  "totals": { "tokens": 14200000, "cost_usd": 12.40 },         // hero = tokens
+  "by_provider": [{ "provider": "claude-code", "tokens": 0, "cost_usd": 0 }],
+  "by_machine":  [{ "machine": "mbp-14", "tokens": 0, "cost_usd": 0,
+                    "age_seconds": 27, "stale": false }],      // stale degrades gracefully
+  "session": { "machine": "mbp-14", "tokens": 0, "cost_usd": 0 }, // or null — active session
+  "month":   { "month": "2026-06", "tokens": 0, "cost_usd": 0 },  // reckoned in one TZ
   // phase 3+: projection{ eod_usd, month_usd }, budget{ limit, used_pct }
   // phase 4+: sparkline_1h[] (token buckets), active_machine
 }

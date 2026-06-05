@@ -44,6 +44,13 @@ export interface SnapshotRow {
   tokens: number;
   /** non-negative cost for the whole (model, bucket); replicated across categories. */
   cost_usd: number;
+  /**
+   * Session activity time as epoch ms (from ccusage `lastActivity`), for SESSION rows
+   * only — it identifies which session is *currently active* across machines, since a
+   * single ingest stamps every row with the same `received_at` and can't break the tie.
+   * Omitted for daily/monthly rows.
+   */
+  activity_at?: number;
 }
 
 /** What a daemon POSTs to `/ingest`. `collected_at` is the daemon clock (untrusted). */
@@ -66,15 +73,56 @@ export interface Totals {
   cost_usd: number;
 }
 
+/** A provider's slice of the combined total (Claude Code vs Codex vs …). */
+export interface ProviderBreakdown {
+  provider: string;
+  tokens: number;
+  cost_usd: number;
+}
+
 /**
- * The compact `GET /usage/summary` payload the firmware renders. v1 carries the
- * hero only. `last_sync` is null when nothing has ever been ingested.
+ * A machine's slice, plus its own freshness. `stale` is true when nothing newer than
+ * the server's configured freshness threshold has arrived — the panel shows it dimmed
+ * with an explicit age so it never claims fresher-than-true.
+ */
+export interface MachineBreakdown {
+  machine: string;
+  tokens: number;
+  cost_usd: number;
+  age_seconds: number;
+  stale: boolean;
+}
+
+/** The currently-active session's burn (most recently updated session), or null. */
+export interface SessionBurn {
+  machine: string;
+  tokens: number;
+  cost_usd: number;
+}
+
+/** Month-to-date, reckoned in the server's declared timezone. */
+export interface MonthToDate {
+  /** the reckoning month, `YYYY-MM` in the declared timezone. */
+  month: string;
+  tokens: number;
+  cost_usd: number;
+}
+
+/**
+ * The compact `GET /usage/summary` payload the firmware renders. v2 adds the
+ * hierarchy breakdowns (provider, machine, session, month) on top of v1's hero.
+ * Older (v1) firmware keeps working — it only reads `totals`. Fields are additive.
+ * `last_sync` / `session` are null when there is nothing to report.
  */
 export interface UsageSummary {
-  v: 1;
+  v: 2;
   generated_at: string;
   last_sync: LastSync | null;
   totals: Totals;
+  by_provider: ProviderBreakdown[];
+  by_machine: MachineBreakdown[];
+  session: SessionBurn | null;
+  month: MonthToDate;
 }
 
 /** Bounds shared by validation on both ends. Generous but finite — DoS ceilings. */

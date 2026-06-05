@@ -25,6 +25,7 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 - [[decisions/0005-cyd-board-and-toolchain]] — ESP32-2432S028R + PlatformIO/LVGL/TFT_eSPI
 - [[decisions/0006-cost-attribution-grain]] — replicate cost per category row, de-dup per model/bucket when summing
 - [[decisions/0007-firmware-host-testable-core]] — pure host-compilable firmware core, no emulator
+- [[decisions/0008-display-design-system]] — type scale, palette, state→non-color-signal mapping (phase 2)
 
 ### Incident notes
 

@@ -19,10 +19,16 @@ function requireEnv(name: string): string {
 const token = requireEnv("USAGE_BEARER_TOKEN");
 const dbPath = process.env.USAGE_DB_PATH ?? "usage.db";
 const port = Number(process.env.PORT ?? 8080);
+const staleAfterSeconds = Number(process.env.USAGE_STALE_AFTER_SECONDS ?? 120);
+// Default the reckoning timezone to the server's own zone; override with env.
+const timezone =
+  process.env.USAGE_RECKONING_TZ ??
+  Intl.DateTimeFormat().resolvedOptions().timeZone ??
+  "UTC";
 
 const db = new Db(dbPath);
 const logger = makeLogger();
-const app = createApp({ db, token, logger });
+const app = createApp({ db, token, logger, summary: { staleAfterSeconds, timezone } });
 
 const server = Bun.serve({ port, fetch: app.fetch });
 logger.info("server listening", { port: server.port, db: dbPath });

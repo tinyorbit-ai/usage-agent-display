@@ -113,7 +113,20 @@ async function main(): Promise<void> {
       fail(`expected last_sync to be the freshest machine (mbp-14), got ${JSON.stringify(summary.last_sync)}`);
     }
 
+    // v2: the hierarchy breakdowns are present and consistent with the hero.
+    if (summary.v !== 2) fail(`expected summary v2, got v${summary.v}`);
+    if (summary.by_machine.length !== 2) fail(`expected 2 machines, got ${summary.by_machine.length}`);
+    const machineSum = summary.by_machine.reduce((a, m) => a + m.tokens, 0);
+    if (machineSum !== summary.totals.tokens) {
+      fail(`by_machine tokens (${machineSum}) must equal the hero (${summary.totals.tokens})`);
+    }
+    const providerSum = summary.by_provider.reduce((a, p) => a + p.tokens, 0);
+    if (providerSum !== summary.totals.tokens) {
+      fail(`by_provider tokens (${providerSum}) must equal the hero (${summary.totals.tokens})`);
+    }
+
     console.log(`✓ e2e PASS — combined daily total = ${summary.totals.tokens} (dedup + daily-only + 2 machines)`);
+    console.log(`  v2 breakdowns consistent: by_machine & by_provider both sum to the hero`);
   } finally {
     server.stop();
     db.close();

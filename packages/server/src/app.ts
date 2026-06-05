@@ -8,8 +8,14 @@ import { LIMITS } from "@usage/shared";
 import { type StoredSnapshot, Db } from "./db.ts";
 import { isAuthorized } from "./auth.ts";
 import { validateIngest } from "./validate.ts";
-import { buildSummary } from "./summary.ts";
+import { buildSummary, type SummaryConfig } from "./summary.ts";
 import { makeLogger, type Logger } from "./log.ts";
+
+/** Default freshness threshold and reckoning timezone if the app isn't configured. */
+export const DEFAULT_SUMMARY_CONFIG: SummaryConfig = {
+  staleAfterSeconds: 120,
+  timezone: "UTC",
+};
 
 export interface AppDeps {
   db: Db;
@@ -17,6 +23,8 @@ export interface AppDeps {
   logger?: Logger;
   /** Injectable clock (epoch ms) for deterministic tests. Defaults to Date.now. */
   now?: () => number;
+  /** Freshness threshold + reckoning timezone. Defaults to {@link DEFAULT_SUMMARY_CONFIG}. */
+  summary?: SummaryConfig;
 }
 
 export interface App {
@@ -40,6 +48,7 @@ export function createApp(deps: AppDeps): App {
   const { db, token } = deps;
   const logger = deps.logger ?? makeLogger();
   const now = deps.now ?? Date.now;
+  const summaryConfig = deps.summary ?? DEFAULT_SUMMARY_CONFIG;
 
   async function handleIngest(req: Request): Promise<Response> {
     // Cap the body BEFORE parsing so a giant payload can't exhaust memory. Trust the
@@ -84,7 +93,7 @@ export function createApp(deps: AppDeps): App {
   }
 
   function handleSummary(): Response {
-    return json(buildSummary(db, now()));
+    return json(buildSummary(db, now(), summaryConfig));
   }
 
   return {

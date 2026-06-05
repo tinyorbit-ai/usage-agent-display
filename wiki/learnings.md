@@ -10,6 +10,40 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-05 — Phase 2 — "Most recent" needs a real activity time, not arrival order
+- **Found:** (Codex, high) The active-session pick ordered by `received_at`, but one
+  ccusage poll returns ALL sessions → one ingest stamps them with the SAME received_at
+  → the tie made "current session" arbitrary. The test masked it by putting each
+  session in a separate, time-advanced ingest.
+- **Fixed:** Threaded ccusage `lastActivity` → `activity_at` (epoch ms) through the
+  contract/validation/schema; the active session orders by `MAX(activity_at)` with
+  received_at as a tiebreak. Added a single-ingest multi-session test.
+- **Rule to remember:** "Most recent X" must order by X's real timestamp, not by when
+  the batch arrived — batched writes share an arrival time and can't be tie-broken by it.
+  When a test sets up the scenario across separate writes, ask whether the real producer
+  sends it as one batch.
+
+## 2026-06-05 — Phase 2 — A rollup test with one row can't catch a dedup regression
+- **Found:** (Codex, med) v2 cost-rollup fixtures used a single token-category row per
+  model, so swapping the cost dedup (`MAX`) for `SUM` would 4× real cost yet pass —
+  the real daemon emits four replicated-cost rows per model.
+- **Fixed:** Added multi-category replicated-cost fixtures for by_provider/by_machine/
+  session/month asserting tokens sum but cost counts once.
+- **Rule to remember:** Test aggregation with the SHAPE production emits (here: 4
+  replicated rows), not a simplified one-row stand-in — otherwise the test can't
+  distinguish correct dedup from a 4× overcount.
+
+## 2026-06-05 — Phase 2 — Name the inherent limit instead of faking precision
+- **Found:** (Codex, high) Month-to-date used a declared-TZ month *prefix* but filtered
+  producer-TZ daily bucket dates — cross-TZ machines near a boundary count by producer
+  date. ccusage gives no intra-day timestamps, so true server-TZ re-bucketing is impossible.
+- **Fixed:** Documented the guarantee precisely (declared TZ picks the month boundary;
+  buckets stay producer-local) at the query and in [[improvements]] — behavior unchanged
+  because it's already the best available from ccusage's pre-aggregated data.
+- **Rule to remember:** When upstream data can't support the ideal, encode and document
+  the *actual* guarantee rather than implying a stronger one. A precise limitation beats
+  a silent approximation.
+
 ## 2026-06-05 — Phase 1 — Defensive "floor to 0" is destructive on a dedup-upsert path
 - **Found:** (Codex, high) `normalize` floored missing/non-numeric/negative token
   fields to `0`. Because ingest UPSERTs by dedup key, a drifted/corrupt ccusage entry

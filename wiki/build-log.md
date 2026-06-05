@@ -3,6 +3,33 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 2 — The full tile layout (metric hierarchy on screen)
+**Branch:** `phase/2-tile-hierarchy` → squashed to `main` (`3860ab6`)
+
+- `/usage/summary` **v2** (additive — v1 firmware still reads `totals`): `by_provider[]`,
+  `by_machine[]` (with `age_seconds` + `stale`), `session` (active session burn),
+  `month` (month-to-date). Server rollup queries collapse token categories and de-dup
+  cost per (machine, provider, model, bucket); per-machine freshness drives `stale`
+  (`USAGE_STALE_AFTER_SECONDS`); month reckoned in one declared timezone
+  (`USAGE_RECKONING_TZ`). Firmware core gained `parseSummary(v2)` + `classifyPanel`
+  (empty/live/partial/all-stale/disconnected/connecting); `main.cpp` renders the tile
+  hierarchy with a **non-color signal per state** ([[decisions/0008-display-design-system]]).
+- **Why notable:** the panel must never claim fresher-than-true, so freshness is an
+  explicit numeric age + a `stale` flag, and every state has an icon/word signal (reads
+  in a desaturated photo), not color alone. Active session ordered by ccusage
+  `lastActivity` (`activity_at`), not arrival time — one poll batches all sessions.
+- **Review (Codex) fixed 3** (2 high): active-session tie-break via `activity_at`;
+  multi-category replicated-cost dedup fixtures; documented the month-TZ inherent limit.
+  Lessons in [[learnings]].
+- **Gate:** `bun run gate` — 87 unit tests incl. exact-value v2 fixtures (by_provider/
+  by_machine/session/month), stale flagging, cross-TZ month reckoning, single-ingest
+  multi-session, multi-category cost-dedup + firmware panel-state matrix + e2e
+  (by_machine & by_provider both sum to the hero) — **green**. Real ccusage v2 smoke:
+  hero 2.17B, session 151M, month-to-date 351M; 336/336 session rows carry activity_at.
+- **Hardware/visual half (pending, non-blocking):** every tile matches `curl`; designed
+  empty/live/partial/all-stale states + desaturated-photo legibility — confirmed at the
+  board (the bring-up session).
+
 ## Phase 1 — Aggregate two machines, show the number on the CYD
 **Branch:** `phase/1-aggregate-and-show` → squashed to `main` (`6038248`)
 

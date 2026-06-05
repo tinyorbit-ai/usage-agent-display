@@ -29,6 +29,7 @@ const ROW_KEYS = new Set([
   "bucket",
   "tokens",
   "cost_usd",
+  "activity_at",
 ]);
 const PAYLOAD_KEYS = new Set(["machine_id", "collected_at", "rows"]);
 
@@ -91,6 +92,14 @@ function validateRow(raw: unknown, idx: number): Field<SnapshotRow> {
   const cost = nonNegFinite(raw.cost_usd, `rows[${idx}].cost_usd`, LIMITS.COST_MAX);
   if ("e" in cost) return cost;
 
+  // activity_at is optional; when present it must be a non-negative finite epoch ms.
+  let activityAt: number | undefined;
+  if (raw.activity_at !== undefined) {
+    const a = nonNegFinite(raw.activity_at, `rows[${idx}].activity_at`, Number.MAX_SAFE_INTEGER);
+    if ("e" in a) return a;
+    activityAt = a.v;
+  }
+
   return ok({
     provider: provider.v,
     model: model.v,
@@ -99,6 +108,7 @@ function validateRow(raw: unknown, idx: number): Field<SnapshotRow> {
     bucket: bucket.v,
     tokens: tokens.v,
     cost_usd: cost.v,
+    ...(activityAt !== undefined ? { activity_at: activityAt } : {}),
   });
 }
 

@@ -22,3 +22,15 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
 - **Daemon retry is "skip until next tick"**, not backoff/queue. Fine for a desk panel
   (next interval re-posts the same cumulative totals; nothing is lost), but a long
   server outage means no catch-up burst — acceptable given idempotent cumulative posts.
+
+## Phase 2
+
+- **Month-to-date timezone is a boundary choice, not a re-bucketing (inherent limit).**
+  ccusage groups daily usage by the *producer machine's* local calendar date and gives
+  no intra-day timestamps, so the server can't re-bucket a day into a different TZ. The
+  declared `USAGE_RECKONING_TZ` governs *which month is "current"* — one consistent
+  boundary across all machines — but the daily bucket dates stay producer-local. Near a
+  month edge a far-TZ machine's date can differ by a day. Fixing this fully would mean
+  collecting raw per-event timestamps (a direct-parse collector, its own ADR) instead of
+  ccusage's pre-aggregated daily rows. Deferred — the current behavior is the best
+  available from ccusage and is documented at the query (Codex phase-2 review).

@@ -5,8 +5,9 @@
  */
 import { Db } from "../src/db.ts";
 import { createApp, type App } from "../src/app.ts";
+import type { SummaryConfig } from "../src/summary.ts";
 import { makeLogger } from "../src/log.ts";
-import type { IngestPayload, ReportType, SnapshotRow, TokenCategory } from "@usage/shared";
+import type { IngestPayload, ReportType, SnapshotRow, TokenCategory, UsageSummary } from "@usage/shared";
 
 export const TOKEN = "test-bearer-secret-0xCAFE";
 
@@ -25,12 +26,15 @@ export interface Harness {
   logs: string[];
 }
 
-export function makeHarness(startMs = Date.parse("2026-06-05T12:00:00.000Z")): Harness {
+export function makeHarness(
+  startMs = Date.parse("2026-06-05T12:00:00.000Z"),
+  summary?: SummaryConfig,
+): Harness {
   const db = new Db(":memory:");
   const clock = new Clock(startMs);
   const logs: string[] = [];
   const logger = makeLogger((line) => logs.push(line));
-  const app = createApp({ db, token: TOKEN, logger, now: clock.now });
+  const app = createApp({ db, token: TOKEN, logger, now: clock.now, ...(summary ? { summary } : {}) });
   return { app, db, clock, logs };
 }
 
@@ -84,14 +88,16 @@ export async function ingest(
 
 /** GET the summary through the app and return the parsed body. */
 export async function getSummary(h: Harness): Promise<{ tokens: number; cost_usd: number; lastSyncAge: number | null }> {
-  const res = await h.app.fetch(summaryRequest());
-  const body = (await res.json()) as {
-    totals: { tokens: number; cost_usd: number };
-    last_sync: { age_seconds: number } | null;
-  };
+  const body = await getFullSummary(h);
   return {
     tokens: body.totals.tokens,
     cost_usd: body.totals.cost_usd,
     lastSyncAge: body.last_sync ? body.last_sync.age_seconds : null,
   };
+}
+
+/** GET the full v2 summary, typed against the contract. */
+export async function getFullSummary(h: Harness): Promise<UsageSummary> {
+  const res = await h.app.fetch(summaryRequest());
+  return (await res.json()) as UsageSummary;
 }

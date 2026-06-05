@@ -54,6 +54,7 @@ function rowsForBreakdown(
   bucket: string,
   model: string,
   breakdown: Record<string, unknown>,
+  activityAt: number | undefined,
 ): SnapshotRow[] | null {
   const cost = num(breakdown.cost) ?? num(breakdown.totalCost) ?? 0;
   if (cost < 0) return null;
@@ -78,6 +79,7 @@ function rowsForBreakdown(
     bucket,
     tokens: counts[category],
     cost_usd: Math.max(0, cost),
+    ...(activityAt !== undefined ? { activity_at: activityAt } : {}),
   }));
 }
 
@@ -108,6 +110,14 @@ export function normalizeReport(
       continue;
     }
 
+    // Session entries carry a `lastActivity` ISO timestamp — capture it so the server
+    // can pick the genuinely active session (not just the most-recently-posted one).
+    let activityAt: number | undefined;
+    if (reportType === "session" && typeof obj.lastActivity === "string") {
+      const ms = Date.parse(obj.lastActivity);
+      if (!Number.isNaN(ms) && ms >= 0) activityAt = ms;
+    }
+
     const breakdowns = obj.modelBreakdowns;
     if (Array.isArray(breakdowns) && breakdowns.length > 0) {
       for (const b of breakdowns) {
@@ -117,7 +127,7 @@ export function normalizeReport(
           skipped++;
           continue;
         }
-        const built = rowsForBreakdown(provider, reportType, bucket, model, bd);
+        const built = rowsForBreakdown(provider, reportType, bucket, model, bd, activityAt);
         if (built === null) skipped++;
         else rows.push(...built);
       }
@@ -126,7 +136,7 @@ export function normalizeReport(
       const models = obj.modelsUsed;
       const model =
         Array.isArray(models) && typeof models[0] === "string" ? models[0] : "unknown";
-      const built = rowsForBreakdown(provider, reportType, bucket, model, obj);
+      const built = rowsForBreakdown(provider, reportType, bucket, model, obj, activityAt);
       if (built === null) skipped++;
       else rows.push(...built);
     }
