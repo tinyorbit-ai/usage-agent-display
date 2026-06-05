@@ -28,6 +28,7 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 - [[decisions/0008-display-design-system]] — type scale, palette, state→non-color-signal mapping (phase 2)
 - [[decisions/0009-pricing-source-and-projection]] — own price table over granular rows; unknown→unpriced; linear projection (phase 3)
 - [[decisions/0010-live-transport]] — fast poll + bounded firmware interpolation, not SSE (phase 4)
+- [[decisions/0011-retention-policy]] — prune snapshots by last-write age, server-self-pruned (phase 5)
 
 ### Incident notes
 

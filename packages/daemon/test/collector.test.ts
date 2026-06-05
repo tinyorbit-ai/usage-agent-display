@@ -1,7 +1,7 @@
 // Collector: provider tagging across report types, argv shape (no shell string), and
 // per-report isolation — one report type failing doesn't sink the others.
 import { describe, expect, test } from "bun:test";
-import { ccusageCollector, type Exec } from "../src/collector.ts";
+import { buildCollectors, ccusageCollector, type Exec } from "../src/collector.ts";
 
 const dailyJson = JSON.stringify({
   daily: [{ date: "2026-06-05", modelBreakdowns: [{ modelName: "m", outputTokens: 10, cost: 0.1 }] }],
@@ -47,5 +47,36 @@ describe("ccusageCollector", () => {
     const { rows, skipped } = await collector.collect();
     expect(rows).toHaveLength(0);
     expect(skipped).toBe(1);
+  });
+});
+
+describe("buildCollectors registry", () => {
+  test("builds one collector per provider spec, each tagged + using its command", async () => {
+    const calls: string[][] = [];
+    const exec: Exec = async (argv) => {
+      calls.push(argv);
+      return dailyJson;
+    };
+    const collectors = buildCollectors(
+      [
+        { provider: "claude-code", reports: ["daily"], command: ["bunx", "ccusage"] },
+        { provider: "cursor", reports: ["daily"], command: ["cursor-usage"] },
+      ],
+      exec,
+    );
+    expect(collectors.map((c) => c.provider)).toEqual(["claude-code", "cursor"]);
+
+    await Promise.all(collectors.map((c) => c.collect()));
+    expect(calls).toContainEqual(["bunx", "ccusage", "daily", "--json"]);
+    expect(calls).toContainEqual(["cursor-usage", "daily", "--json"]);
+  });
+
+  test("rejects duplicate provider labels (they'd collide in the dedup key)", () => {
+    expect(() =>
+      buildCollectors([
+        { provider: "claude-code", reports: ["daily"] },
+        { provider: "claude-code", reports: ["daily"] },
+      ]),
+    ).toThrow(/duplicate provider/);
   });
 });

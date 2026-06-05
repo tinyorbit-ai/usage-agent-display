@@ -1,0 +1,26 @@
+# Linux systemd unit for the per-machine daemon. Install on EACH machine:
+#   sudo cp deploy/systemd/usage-daemon.service /etc/systemd/system/
+#   sudo mkdir -p /etc/usage && sudoedit /etc/usage/daemon.env   # see below
+#   sudo systemctl enable --now usage-daemon
+#
+# /etc/usage/daemon.env (chmod 600 — holds the shared secret, NOT in git):
+#   USAGE_BEARER_TOKEN=replace-with-shared-secret
+#   USAGE_SERVER_URL=http://server-host:8080
+#   USAGE_MACHINE_ID=this-machine
+#   USAGE_INTERVAL_SECONDS=30
+[Unit]
+Description=usage-agent-display per-machine collector daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/usage/daemon.env
+WorkingDirectory=/opt/usage-agent-display
+ExecStart=/usr/local/bin/bun run packages/daemon/src/index.ts
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 // machine_id provenance: explicit wins; hostname-derived fallback strips `.local`;
 // collision-prone values are refused so two machines can't silently merge.
 import { describe, expect, test } from "bun:test";
-import { ConfigError, hostnameMachineId, loadConfig, resolveMachineId } from "../src/config.ts";
+import { ConfigError, hostnameMachineId, loadConfig, parseCommand, resolveMachineId } from "../src/config.ts";
 
 describe("resolveMachineId", () => {
   test("explicit id wins over hostname", () => {
@@ -49,5 +49,31 @@ describe("loadConfig", () => {
 
   test("a sub-second interval is rejected", () => {
     expect(() => loadConfig({ ...base, USAGE_INTERVAL_SECONDS: "0" })).toThrow(ConfigError);
+  });
+
+  test("USAGE_CCUSAGE_CMD defaults to pinned ccusage and overrides via env", () => {
+    expect(loadConfig({ ...base }).ccusageCommand).toEqual(["bunx", "ccusage"]);
+    expect(loadConfig({ ...base, USAGE_CCUSAGE_CMD: "bun run stub.ts" }).ccusageCommand).toEqual(["bun", "run", "stub.ts"]);
+  });
+});
+
+describe("parseCommand", () => {
+  test("whitespace-splits a plain string", () => {
+    expect(parseCommand("bunx ccusage", ["x"])).toEqual(["bunx", "ccusage"]);
+  });
+
+  test("a JSON array preserves args/paths containing spaces", () => {
+    expect(parseCommand('["bun","run","/a b/x.ts"]', ["x"])).toEqual(["bun", "run", "/a b/x.ts"]);
+  });
+
+  test("empty/undefined falls back", () => {
+    expect(parseCommand(undefined, ["bunx", "ccusage"])).toEqual(["bunx", "ccusage"]);
+    expect(parseCommand("   ", ["bunx", "ccusage"])).toEqual(["bunx", "ccusage"]);
+  });
+
+  test("malformed JSON array throws", () => {
+    expect(() => parseCommand("[not json", ["x"])).toThrow(ConfigError);
+    expect(() => parseCommand("[]", ["x"])).toThrow(ConfigError);
+    expect(() => parseCommand('[1,2]', ["x"])).toThrow(ConfigError);
   });
 });

@@ -3,6 +3,29 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 5 — Extensibility proof + self-host ops hardening
+**Branch:** `phase/5-extensible-and-ops` → squashed to `main` (`561bf2c`)
+
+- **3-year-fit proven:** a new provider slots in through the `Collector` interface with
+  **zero aggregation change** — a `buildCollectors` registry (`ProviderSpec`) plus a
+  `USAGE_CCUSAGE_CMD` override; tests add `cursor`/`windsurf` providers (one hand-built,
+  one through the registry) and assert they reach `by_provider[]` + the combined total.
+- **Runs unattended:** an **ops smoke** (`scripts/smoke-ops.ts`, in the gate) starts the
+  server and daemon from their *documented commands* (real subprocesses, real bearer
+  auth, a stub ccusage) and asserts 777 tokens flow end to end. **launchd** + **systemd**
+  units in `deploy/` for server + daemon; README run-unattended + add-a-provider sections.
+- **Retention** ([[decisions/0011-retention-policy]]): the server self-prunes snapshots
+  not re-posted within `USAGE_RETENTION_DAYS` (default 400), daily — safe because the
+  daemon refreshes `received_at` on every active bucket.
+- **Review (Codex) fixed 5** (1 high): reject **duplicate provider labels** (they'd
+  collide in the dedup key and silently undercount); **fail-fast** retention config (a
+  typo no longer silently disables pruning); spaces-safe JSON-argv command override;
+  registry-path extensibility test. Lessons in [[learnings]].
+- **Gate:** `bun run gate` — 120 unit tests + ops smoke (documented-command startup,
+  end-to-end flow) — **green**; typecheck clean.
+- **Manual half (pending, non-blocking):** the full system runs unattended across a day
+  on real machines; last_sync honest, totals correct — confirmed in operation.
+
 ## Phase 4 — Make it live (mission-control feel)
 **Branch:** `phase/4-live` → squashed to `main` (`09cfabd`)
 

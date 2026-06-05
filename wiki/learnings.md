@@ -10,6 +10,36 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-06 — Phase 5 — A registry of keys must reject duplicates at build time
+- **Found:** (Codex, high) `buildCollectors` accepted two specs with the same provider
+  label; their rows would share the dedup key and silently overwrite each other
+  (undercount), with no error.
+- **Fixed:** Reject duplicate `provider` labels when building the registry; added a
+  duplicate-provider test.
+- **Rule to remember:** When entries become part of a uniqueness key downstream (a dedup
+  key, a map key), validate uniqueness where the set is assembled — a silent collision is
+  far harder to diagnose later than a loud build-time error.
+
+## 2026-06-06 — Phase 5 — Invalid config must fail fast, not silently disable a safeguard
+- **Found:** (Codex, med) A typo'd `USAGE_RETENTION_DAYS` (e.g. "400d") parsed to NaN and
+  silently disabled pruning forever — the store would grow unbounded with no signal.
+  The command override also whitespace-split, breaking paths with spaces.
+- **Fixed:** `resolveRetentionDays` throws on an invalid value (only an explicit 0
+  disables); the ccusage command accepts a spaces-safe JSON-array form. Both extracted
+  into testable units with tests for the invalid/edge cases.
+- **Rule to remember:** A safeguard that turns itself off on malformed input is worse than
+  no safeguard — validate and fail fast. And don't bury config parsing in an entrypoint;
+  extract it so the failure modes are testable.
+
+## 2026-06-06 — Phase 5 — Test the production wiring, not a hand-built stand-in
+- **Found:** (Codex, med) The extensibility gate built a Collector by hand, bypassing the
+  `buildCollectors` registry — so the actual registry/config path could break while the
+  "third provider" test stayed green.
+- **Fixed:** Added a test that adds a provider THROUGH `buildCollectors` and asserts it
+  reaches the summary.
+- **Rule to remember:** An extensibility/integration test should exercise the real entry
+  point users go through, or it proves the seam works only for a path nobody uses.
+
 ## 2026-06-06 — Phase 4 — "Append-only" must be enforced by the schema, not the comment
 - **Found:** (Codex, high) The samples table was documented append-only but keyed on
   `(machine_id, received_at)` with `ON CONFLICT DO UPDATE`, so two same-millisecond

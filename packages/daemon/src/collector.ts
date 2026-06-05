@@ -87,3 +87,41 @@ export function ccusageCollector(opts: CcusageOptions): Collector {
     },
   };
 }
+
+/** A registered provider: a name plus the argv that produces ccusage-shaped JSON. */
+export interface ProviderSpec {
+  provider: string;
+  /** argv prefix; the collector appends `<report> --json`. Defaults to pinned ccusage. */
+  command?: string[];
+  reports?: readonly ReportType[];
+}
+
+const DEFAULT_REPORTS: readonly ReportType[] = ["daily", "session", "monthly"];
+
+/**
+ * The provider registry (phase 5): turn a list of {@link ProviderSpec}s into
+ * Collectors. Adding a provider that emits ccusage-shaped JSON is a config entry here;
+ * a provider with a different shape is a new {@link Collector} implementation behind the
+ * same interface — either way the server's aggregation is untouched (provider-agnostic).
+ */
+export function buildCollectors(specs: ProviderSpec[], exec?: Exec): Collector[] {
+  // Reject duplicate provider labels: two collectors with the same provider emit rows
+  // that share the dedup key (machine, provider, model, category, report_type, bucket),
+  // so they'd collide in `snapshots` — last write wins, silently undercounting. (Codex.)
+  const seen = new Set<string>();
+  for (const s of specs) {
+    if (seen.has(s.provider)) {
+      throw new Error(`duplicate provider in registry: "${s.provider}" — provider labels must be unique`);
+    }
+    seen.add(s.provider);
+  }
+
+  return specs.map((s) =>
+    ccusageCollector({
+      provider: s.provider,
+      reports: s.reports ?? DEFAULT_REPORTS,
+      ...(s.command ? { command: s.command } : {}),
+      ...(exec ? { exec } : {}),
+    }),
+  );
+}

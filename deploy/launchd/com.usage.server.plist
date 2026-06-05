@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS launchd service for the central server. Install:
+       cp deploy/launchd/com.usage.server.plist ~/Library/LaunchAgents/
+       # edit the paths + secret below, then:
+       launchctl load ~/Library/LaunchAgents/com.usage.server.plist
+     Keep the bearer token here OUT of git — this file is a template; the copy you
+     install with a real token must not be committed. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.usage.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/bun</string>
+    <string>run</string>
+    <string>/REPLACE/path/to/usage-agent-display/packages/server/src/index.ts</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>USAGE_BEARER_TOKEN</key><string>REPLACE-with-shared-secret</string>
+    <key>PORT</key><string>8080</string>
+    <key>USAGE_DB_PATH</key><string>/REPLACE/path/to/usage.db</string>
+    <key>USAGE_RECKONING_TZ</key><string>America/New_York</string>
+    <key>USAGE_STALE_AFTER_SECONDS</key><string>120</string>
+    <key>USAGE_RETENTION_DAYS</key><string>400</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/tmp/usage-server.err.log</string>
+  <key>StandardOutPath</key><string>/tmp/usage-server.out.log</string>
+</dict>
+</plist>

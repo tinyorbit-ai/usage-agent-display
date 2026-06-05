@@ -54,6 +54,27 @@ USAGE_BEARER_TOKEN=… USAGE_SERVER_URL=http://<server>:8080 bun run packages/da
 
 Firmware: see [`firmware/README.md`](firmware/README.md).
 
+### Run unattended (self-host)
+
+Process recipes live in [`deploy/`](deploy/): `launchd/` for macOS, `systemd/` for
+Linux. Copy the unit, fill in the paths + the shared `USAGE_BEARER_TOKEN` (keep the
+installed copy out of git), and enable it. The server self-prunes old rows daily
+(`USAGE_RETENTION_DAYS`, default 400). A one-shot end-to-end check that starts both
+processes from their documented commands:
+
+```sh
+bun run smoke:ops
+```
+
+### Add a provider (3-year fit)
+
+A provider that emits ccusage-shaped JSON is a registry entry — add a `ProviderSpec`
+(`{ provider, command }`) in the daemon and it flows through the same pipeline. A
+provider with a *different* shape is a new `Collector` implementation behind the same
+interface. Either way the server's aggregation is untouched — it's provider-agnostic
+(proven by `packages/daemon/test/extensibility.test.ts`, which adds a "cursor" provider
+and asserts it appears in `by_provider[]` and the combined total with zero core change).
+
 ## Security
 
 - One shared **bearer token** protects both endpoints (write *and* read). It lives in

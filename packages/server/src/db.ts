@@ -87,6 +87,7 @@ export class Db {
   private readonly pruneSamplesStmt: Statement;
   private readonly samplesInWindowStmt: Statement<TotalSample, [number]>;
   private readonly boundarySamplesStmt: Statement<TotalSample, [number]>;
+  private readonly pruneSnapshotsStmt: Statement<unknown, [number]>;
 
   constructor(path = ":memory:") {
     this.handle = new Database(path);
@@ -251,6 +252,13 @@ export class Db {
           SELECT MAX(id) FROM total_samples WHERE received_at < ? GROUP BY machine_id
         );`,
     );
+
+    // Retention (phase 5, ADR 0011): drop rows not re-posted within the window. The
+    // daemon refreshes received_at every tick, so only buckets that have aged out of
+    // ccusage's ~30-day local window (and so are never re-sent) are pruned.
+    this.pruneSnapshotsStmt = this.handle.query(
+      `DELETE FROM snapshots WHERE received_at < ?;`,
+    );
   }
 
   private migrate(): void {
@@ -361,6 +369,11 @@ export class Db {
   /** A machine's all-time cumulative daily token total (monotonic). */
   machineDailyTotal(machineId: string): number {
     return this.machineDailyTotalStmt.get(machineId)?.total ?? 0;
+  }
+
+  /** Prune snapshot rows whose newest write predates `cutoffMs`. Returns rows removed. */
+  pruneSnapshotsBefore(cutoffMs: number): number {
+    return this.pruneSnapshotsStmt.run(cutoffMs).changes;
   }
 
   /**

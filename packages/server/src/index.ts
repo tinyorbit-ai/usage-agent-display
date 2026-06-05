@@ -6,6 +6,7 @@
 import { Db } from "./db.ts";
 import { createApp } from "./app.ts";
 import { makeLogger } from "./log.ts";
+import { pruneExpired, resolveRetentionDays, RetentionConfigError } from "./retention.ts";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -33,12 +34,32 @@ const db = new Db(dbPath);
 const logger = makeLogger();
 const app = createApp({ db, token, logger, summary: { staleAfterSeconds, timezone, budgetUsd } });
 
+// Retention: prune rows not re-posted within the window, daily (phase 5, ADR 0011).
+// A typo'd value fails fast rather than silently disabling pruning forever.
+let retentionDays: number | null;
+try {
+  retentionDays = resolveRetentionDays(process.env);
+} catch (e) {
+  if (e instanceof RetentionConfigError) {
+    process.stderr.write(`[fatal] ${e.message}\n`);
+    process.exit(1);
+  }
+  throw e;
+}
+const pruneOnce = (): void => {
+  const removed = pruneExpired(db, retentionDays, Date.now());
+  if (removed > 0) logger.info("retention prune", { removed, retentionDays });
+};
+pruneOnce();
+const pruneTimer = setInterval(pruneOnce, 24 * 3600_000);
+
 const server = Bun.serve({ port, fetch: app.fetch });
-logger.info("server listening", { port: server.port, db: dbPath });
+logger.info("server listening", { port: server.port, db: dbPath, retentionDays });
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     logger.info("shutting down", { signal: sig });
+    clearInterval(pruneTimer);
     server.stop();
     db.close();
     process.exit(0);

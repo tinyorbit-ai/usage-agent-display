@@ -17,7 +17,8 @@ export interface Poster {
 export interface PostDeps {
   serverUrl: string;
   token: string;
-  fetchFn?: typeof fetch;
+  /** Minimal fetch signature (not `typeof fetch`) so tests can inject a plain stub. */
+  fetchFn?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 }
 
 export function makePoster(deps: PostDeps): Poster {

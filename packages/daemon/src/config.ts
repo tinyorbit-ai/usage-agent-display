@@ -17,6 +17,8 @@ export interface DaemonConfig {
   intervalMs: number;
   /** the provider label collected ccusage rows are tagged with. */
   provider: string;
+  /** argv that runs ccusage; overridable (USAGE_CCUSAGE_CMD) for stubs/alt binaries. */
+  ccusageCommand: string[];
 }
 
 /** Values too generic to safely identify a single machine. */
@@ -46,6 +48,25 @@ export function resolveMachineId(
   return candidate;
 }
 
+/** Parse a command override: a JSON string-array (spaces-safe) or whitespace-split. */
+export function parseCommand(raw: string | undefined, fallback: string[]): string[] {
+  const t = raw?.trim();
+  if (!t) return fallback;
+  if (t.startsWith("[")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(t);
+    } catch {
+      throw new ConfigError("USAGE_CCUSAGE_CMD: invalid JSON array");
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((x) => typeof x === "string")) {
+      throw new ConfigError("USAGE_CCUSAGE_CMD: JSON form must be a non-empty array of strings");
+    }
+    return parsed as string[];
+  }
+  return t.split(/\s+/);
+}
+
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
   const v = env[name];
   if (!v || v.length === 0) throw new ConfigError(`missing required env var ${name}`);
@@ -57,6 +78,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
   if (!Number.isFinite(intervalSeconds) || intervalSeconds < 1) {
     throw new ConfigError("USAGE_INTERVAL_SECONDS must be a number >= 1");
   }
+  // The ccusage invocation is overridable so a smoke test / alternate binary can be
+  // substituted without code changes. A JSON array (`["bun","run","/p ath/x.ts"]`)
+  // preserves args/paths with spaces; a plain string is split on whitespace for
+  // convenience. Default = pinned ccusage.
+  const ccusageCommand = parseCommand(env.USAGE_CCUSAGE_CMD, ["bunx", "ccusage"]);
+
   return {
     machineId: resolveMachineId(env.USAGE_MACHINE_ID),
     serverUrl: requireEnv(env, "USAGE_SERVER_URL").replace(/\/$/, ""),
@@ -64,5 +91,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
     reports: ["daily", "session", "monthly"],
     intervalMs: Math.round(intervalSeconds * 1000),
     provider: env.USAGE_PROVIDER?.trim() || "claude-code",
+    ccusageCommand,
   };
 }

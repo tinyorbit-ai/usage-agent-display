@@ -1,0 +1,31 @@
+# Linux systemd unit for the central server. Install:
+#   sudo cp deploy/systemd/usage-server.service /etc/systemd/system/
+#   sudo mkdir -p /etc/usage && sudoedit /etc/usage/server.env   # see below
+#   sudo systemctl enable --now usage-server
+#
+# /etc/usage/server.env (chmod 600 — holds the shared secret, NOT in git):
+#   USAGE_BEARER_TOKEN=replace-with-shared-secret
+#   PORT=8080
+#   USAGE_DB_PATH=/var/lib/usage/usage.db
+#   USAGE_RECKONING_TZ=UTC
+#   USAGE_RETENTION_DAYS=400
+[Unit]
+Description=usage-agent-display central server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/usage/server.env
+WorkingDirectory=/opt/usage-agent-display
+ExecStart=/usr/local/bin/bun run packages/server/src/index.ts
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/usage
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS launchd agent for the per-machine daemon. Install on EACH machine:
+       cp deploy/launchd/com.usage.daemon.plist ~/Library/LaunchAgents/
+       # edit paths, machine id, server URL, and the shared secret, then:
+       launchctl load ~/Library/LaunchAgents/com.usage.daemon.plist
+     The installed copy holds the bearer token — do NOT commit it. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.usage.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/bun</string>
+    <string>run</string>
+    <string>/REPLACE/path/to/usage-agent-display/packages/daemon/src/index.ts</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>USAGE_BEARER_TOKEN</key><string>REPLACE-with-shared-secret</string>
+    <key>USAGE_SERVER_URL</key><string>http://REPLACE-server-host:8080</string>
+    <key>USAGE_MACHINE_ID</key><string>REPLACE-unique-machine-id</string>
+    <key>USAGE_INTERVAL_SECONDS</key><string>30</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/tmp/usage-daemon.err.log</string>
+  <key>StandardOutPath</key><string>/tmp/usage-daemon.out.log</string>
+</dict>
+</plist>
