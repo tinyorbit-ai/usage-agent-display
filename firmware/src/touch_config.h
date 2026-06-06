@@ -41,6 +41,34 @@ static const HitBox kTimeTabHitBoxes[] = {
 };
 static const size_t kTimeTabHitBoxCount = sizeof(kTimeTabHitBoxes) / sizeof(kTimeTabHitBoxes[0]);
 
+// --- Agent-chip hit-boxes (landscape px) — phase 12 ---
+// The right band of the top bar holds the 4-segment agent control (ALL + claude/codex/
+// gemini). Four 38px-wide targets with 2px dead gaps, starting at x=150 so the group is
+// DISJOINT from the time tabs (which end at x=128) with a wide ~21px dead band between
+// the two groups — a near-miss never flips the wrong axis. Index matches usage::Agent
+// (0=ALL, 1=claude-code, 2=codex, 3=gemini). Inclusive bounds.
+static const HitBox kAgentHitBoxes[] = {
+    {TapKind::AgentChip, 0, 150, 0, 187, 40},  // ALL     (x 150..187)
+    {TapKind::AgentChip, 1, 190, 0, 227, 40},  // claude  (gap 188,189)
+    {TapKind::AgentChip, 2, 230, 0, 267, 40},  // codex   (gap 228,229)
+    {TapKind::AgentChip, 3, 270, 0, 307, 40},  // gemini  (gap 268,269)
+};
+static const size_t kAgentHitBoxCount = sizeof(kAgentHitBoxes) / sizeof(kAgentHitBoxes[0]);
+
+// The combined routing table the firmware loop hands to routeTap: time tabs first, then
+// agent chips. The two groups are geometrically disjoint, so first-match-wins is
+// unambiguous (asserted in the native suite).
+static const HitBox kAllHitBoxes[] = {
+    {TapKind::TimeTab, 0, 11, 0, 48, 40},
+    {TapKind::TimeTab, 1, 51, 0, 88, 40},
+    {TapKind::TimeTab, 2, 91, 0, 128, 40},
+    {TapKind::AgentChip, 0, 150, 0, 187, 40},
+    {TapKind::AgentChip, 1, 190, 0, 227, 40},
+    {TapKind::AgentChip, 2, 230, 0, 267, 40},
+    {TapKind::AgentChip, 3, 270, 0, 307, 40},
+};
+static const size_t kAllHitBoxCount = sizeof(kAllHitBoxes) / sizeof(kAllHitBoxes[0]);
+
 // Released-and-stable window before another tap is accepted (debounce / no re-arm under
 // a held press). Resistive PENIRQ can re-assert up to ~250ms into a held press, so the
 // release must be continuously valid-contact-free this long before a new tap counts;

@@ -25,8 +25,9 @@ static const int kScreenH = 240;
 // agent chips as a second kind — which is why this is a (kind, index) pair, not a bare
 // tab number, so the disjoint two-group routing extends without reshaping callers.
 enum class TapKind {
-  None,     // hit no control: a gap, outside the bar, or an out-of-range raw read
-  TimeTab,  // index 0..2 → TODAY / 30D / ALL
+  None,       // hit no control: a gap, outside the bar, or an out-of-range raw read
+  TimeTab,    // index 0..2 → TODAY / 30D / ALL
+  AgentChip,  // index 0..3 → ALL / claude-code / codex / gemini (matches usage::Agent)
 };
 
 struct Tap {

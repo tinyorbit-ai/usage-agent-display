@@ -11,6 +11,7 @@
 
 #include <ArduinoJson.h>
 #include <stdint.h>
+#include <string.h>
 
 namespace usage {
 
@@ -221,6 +222,199 @@ inline PanelKind classifyPanel(const DisplayState& s) {
   if (s.staleCount == 0) return PanelKind::Live;
   if (s.staleCount >= s.machineCount) return PanelKind::AllStale;
   return PanelKind::Partial;
+}
+
+// --- phase 12: the agent filter (timeframe × agent), parsed + selected in the host core ---
+//
+// The whole live /usage/summary parse now lives here (it used to be an UNBOUNDED
+// JsonDocument in main.cpp — the P7/P10 host-core regression). parsePanel() runs under
+// the kMaxBodyBytes cap and clamps every untrusted array, so the parse logic and the DoS
+// guard are host-tested rather than bypassed. main.cpp becomes a pure renderer over
+// PanelData via the select* functions. ADR 0014.
+
+// The agent axis. AGENT_ALL is the combined view; the three chip agents map to the
+// PRODUCTION provider ids the payload uses — `claude-code` (NOT `claude`), `codex`,
+// `gemini` (codex review P12: a wrong id silently shows permanent zeros).
+enum Agent { AGENT_ALL = 0, AGENT_CLAUDE = 1, AGENT_CODEX = 2, AGENT_GEMINI = 3 };
+static const int kNumAgents = 3;  // chip agents (excludes ALL)
+
+// provider id for chip agent index 0..2 (claude/codex/gemini).
+inline const char* agentProviderId(int agentChipIdx) {
+  switch (agentChipIdx) {
+    case 0: return "claude-code";
+    case 1: return "codex";
+    case 2: return "gemini";
+  }
+  return "";
+}
+
+// Cap on graph buckets parsed/stored. `daily` is the latest buckets-with-data (≤14 — not
+// a fixed 14-calendar-day axis), so this is a generous ceiling, not the axis length.
+static const int kMaxDailyPoints = 16;
+
+// One timeframe's numbers + its per-chip-agent split (tokens AND cost — cost is already
+// per-provider in the payload, so a filtered cost is honest, never the combined total).
+struct TfParsed {
+  long long tokens = 0;
+  double cost = 0;
+  int days = 0;
+  long long provTokens[kNumAgents] = {0, 0, 0};  // [claude-code, codex, gemini]
+  double provCost[kNumAgents] = {0, 0, 0};
+};
+
+// The full parsed panel model. Per-provider daily arrays are index-aligned to `daily`'s
+// actual buckets (dailyN long), zero-filled where a provider has no row.
+struct PanelData {
+  bool valid = false;
+  TfParsed tf[3];  // today, d30, all
+  int dailyN = 0;
+  // 64-bit: a single day's token count can exceed the 32-bit `long` on the ESP32 (and
+  // must never be narrowed to LVGL's 16-bit lv_coord_t raw — the renderer normalizes).
+  long long daily[kMaxDailyPoints] = {0};                       // combined series
+  long long dailyByProv[kNumAgents][kMaxDailyPoints] = {{0}};   // per chip agent, aligned + zero-filled
+  long long monthTokens = 0;
+  bool hasLastUsed = false;
+  char lastUsedProvider[24] = "";
+  long lastUsedAge = 0;
+  bool hasActive = false;
+  char activeMachine[24] = "";
+  bool hasLastSync = false;
+  long lastSyncAge = 0;
+};
+
+// Bounded copy into a fixed buffer (always NUL-terminates).
+inline void copyBounded(char* dst, size_t cap, const char* src) {
+  if (cap == 0) return;
+  size_t i = 0;
+  for (; src != nullptr && src[i] != '\0' && i + 1 < cap; i++) dst[i] = src[i];
+  dst[i] = '\0';
+}
+
+// Parse a full /usage/summary body into PanelData. Returns false on oversize/parse-fail
+// or a missing `timeframes` block (so the caller keeps last-good and degrades). Every
+// untrusted array is clamped to its buffer AND to the combined `daily` length, so no
+// claim in the body can drive an out-of-bounds write regardless of its size.
+inline bool parsePanel(const char* body, size_t len, PanelData& out) {
+  out = PanelData{};
+  if (body == nullptr || len == 0) return false;
+  if (len > kMaxBodyBytes) return false;  // DoS / truncation guard (now actually enforced)
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body, len)) return false;
+
+  JsonObjectConst tfs = doc["timeframes"];
+  if (tfs.isNull()) return false;
+  const char* tfKeys[3] = {"today", "d30", "all"};
+  for (int i = 0; i < 3; i++) {
+    JsonObjectConst t = tfs[tfKeys[i]];
+    out.tf[i].tokens = t["tokens"] | 0LL;
+    out.tf[i].cost = t["cost_usd"] | 0.0;
+    out.tf[i].days = t["days"] | 0;
+    JsonArrayConst bp = t["by_provider"];
+    for (JsonObjectConst p : bp) {
+      const char* id = p["provider"] | "";
+      for (int a = 0; a < kNumAgents; a++) {
+        if (strcmp(id, agentProviderId(a)) == 0) {
+          out.tf[i].provTokens[a] = p["tokens"] | 0LL;
+          out.tf[i].provCost[a] = p["cost_usd"] | 0.0;
+        }
+      }
+    }
+  }
+
+  // Combined daily series — clamped to the buffer.
+  int n = 0;
+  for (JsonObjectConst pt : doc["daily"].as<JsonArrayConst>()) {
+    if (n >= kMaxDailyPoints) break;
+    out.daily[n++] = pt["tokens"] | 0LL;
+  }
+  out.dailyN = n;
+
+  // Per-provider daily — clamped to the COMBINED axis length (and the buffer), every index
+  // bound-checked, an under-length / missing array zero-padded (never a short/OOB read).
+  JsonObjectConst dbp = doc["daily_by_provider"];
+  if (!dbp.isNull()) {
+    for (int a = 0; a < kNumAgents; a++) {
+      JsonArrayConst arr = dbp[agentProviderId(a)].as<JsonArrayConst>();
+      if (arr.isNull()) continue;  // missing key → row stays all-zeros
+      int i = 0;
+      for (JsonVariantConst v : arr) {
+        if (i >= out.dailyN || i >= kMaxDailyPoints) break;  // clamp to combined axis + buffer
+        out.dailyByProv[a][i++] = v.as<long long>();
+      }
+    }
+  }
+
+  out.monthTokens = doc["month"]["tokens"] | 0LL;
+
+  JsonVariantConst lu = doc["last_used"];
+  if (!lu.isNull()) {
+    out.hasLastUsed = true;
+    copyBounded(out.lastUsedProvider, sizeof(out.lastUsedProvider), lu["provider"] | "");
+    out.lastUsedAge = lu["age_seconds"] | 0L;
+  }
+  if (!doc["active_machine"].isNull()) {
+    out.hasActive = true;
+    copyBounded(out.activeMachine, sizeof(out.activeMachine), doc["active_machine"] | "");
+  }
+  JsonVariantConst ls = doc["last_sync"];
+  if (!ls.isNull()) {
+    out.hasLastSync = true;
+    out.lastSyncAge = ls["age_seconds"] | 0L;
+  }
+
+  out.valid = true;
+  return true;
+}
+
+// Hero tokens for (timeframe, agent). ALL → the timeframe total; a named agent → its own
+// per-provider value (0 when absent from that timeframe — NEVER the combined total).
+inline long long selectHero(const PanelData& d, int tf, int agent) {
+  if (tf < 0 || tf > 2) return 0;
+  if (agent == AGENT_ALL) return d.tf[tf].tokens;
+  const int a = agent - 1;
+  if (a < 0 || a >= kNumAgents) return 0;
+  return d.tf[tf].provTokens[a];
+}
+
+// Cost for (timeframe, agent) — same honesty rule as the hero.
+inline double selectCost(const PanelData& d, int tf, int agent) {
+  if (tf < 0 || tf > 2) return 0.0;
+  if (agent == AGENT_ALL) return d.tf[tf].cost;
+  const int a = agent - 1;
+  if (a < 0 || a >= kNumAgents) return 0.0;
+  return d.tf[tf].provCost[a];
+}
+
+inline int selectDays(const PanelData& d, int tf) {
+  return (tf >= 0 && tf < 3) ? d.tf[tf].days : 0;
+}
+
+// Fill `out` with the series for `agent` (length = dailyN, capped at cap); returns the
+// length. ALL → the combined `daily`; a named agent → its per-provider row (all-zeros
+// when absent — NEVER a fallback to the combined series, which would overstate it).
+inline int selectSeries(const PanelData& d, int agent, long long* out, int cap) {
+  int n = d.dailyN;
+  if (n > cap) n = cap;
+  if (agent == AGENT_ALL) {
+    for (int i = 0; i < n; i++) out[i] = d.daily[i];
+    return n;
+  }
+  const int a = agent - 1;
+  if (a < 0 || a >= kNumAgents) {
+    for (int i = 0; i < n; i++) out[i] = 0;
+    return n;
+  }
+  for (int i = 0; i < n; i++) out[i] = d.dailyByProv[a][i];
+  return n;
+}
+
+// Peak value across a series (for the per-agent peak-day label + chart normalization).
+inline long long seriesPeak(const long long* s, int n) {
+  long long m = 0;
+  for (int i = 0; i < n; i++)
+    if (s[i] > m) m = s[i];
+  return m;
 }
 
 }  // namespace usage

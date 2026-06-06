@@ -3,6 +3,22 @@
 Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
 "deferred X for Y" is a positive signal, not an apology.
 
+## Phase 12
+
+- **The agent control is fixed at ALL + the three branded agents (claude-code / codex /
+  gemini).** A future 4th provider would still appear in the **ALL** total and the
+  combined `daily` graph (the aggregation stays provider-agnostic), but it would have **no
+  chip** of its own and no filtered view — deliberate, consistent with the brief's
+  sharper-niche three-year fit. Making the chip row data-driven (one chip per provider seen
+  in `by_provider`, dynamically laid out) is the unbounded-providers generalization;
+  deferred because four fixed chips fit the ~150px right band cleanly and a dynamic row
+  would need scroll/overflow handling this single-purpose panel doesn't earn yet.
+- **Resolved (was the P7/P10 debt):** the live `/usage/summary` parse now runs in the
+  **bounded host-tested core** (`usage::parsePanel`, `kMaxBodyBytes` + every untrusted
+  array clamped to the combined axis), replacing the unbounded `JsonDocument` in `main.cpp`.
+  The P10 "size bounded only for the realistic set" note above is now closed on-device:
+  a pathological body is rejected/clamped regardless of what the server emits.
+
 ## Phase 10
 
 - **`/usage/summary` size is bounded for the *realistic* provider set, not adversarially

@@ -10,6 +10,40 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-06 — Phase 12 — A green host suite + a clean build is not "it runs on the device"
+- **Found:** (on-device flash, not any automated check) The reworked `updateGraph()` set the
+  LVGL bar chart's `point_count` to 1 at boot (before the first poll, `dailyN == 0`). LVGL's
+  bar renderer spaces columns with `/ (point_cnt - 1)` → **IntegerDivideByZero**, boot loop.
+  All three host suites passed, `pio` linked clean, and the HTML mock looked right — only the
+  hardware flash caught it. See [[notes/2026-06-06-chart-point-count-divide-by-zero]].
+- **Fixed:** clamp `point_count` to a minimum of 2; write 0 to the extra point(s). An empty
+  axis draws flat zero bars instead of crashing.
+- **Rule to remember:** Logic that renders "from current state" must be correct for the
+  EMPTY state that exists before the first fetch — a device's first render is almost always
+  of no data. And third-party draw/widget routines have arithmetic preconditions (here an
+  implicit "≥ 2 points" from a `n-1` divisor): keep inputs inside their domain. The
+  host-testable core can't reach the LVGL/SPI render path, so the **on-device hardware gate
+  is load-bearing**, not ceremony — a firmware phase isn't done when the suite is green.
+
+## 2026-06-06 — Phase 12 — Bound the body at READ time, and never narrow a wide value to a display int
+- **Found:** (codex, 1 high + 2 med) (a) `parsePanel` enforced `kMaxBodyBytes`, but the
+  firmware called `http.getString()` FIRST — the whole oversized body was allocated on the
+  heap before the cap ran, so the DoS guard couldn't actually prevent the OOM it existed to
+  stop. (b) Per-day token counts (billions) were stored as 32-bit `long` and cast straight
+  to LVGL's 16-bit `lv_coord_t` for the bars — any day > 32k tokens wrapped to a garbage
+  height, silently lying. (c) The `n==0` graph path set the point count to 1 but wrote no
+  value, so LVGL kept the previous first bar after the axis emptied.
+- **Fixed:** (a) `readBoundedBody()` streams into a fixed buffer and aborts the moment a
+  declared or streamed length crosses `kMaxBodyBytes` — the cap is enforced before the heap
+  fills. (b) Token series are `long long` end-to-end; the chart normalizes each bar to a
+  fixed `0..kGraphScale` range against the series' own 64-bit max, so nothing is ever
+  narrowed to the raw coord type. (c) `updateGraph` writes EVERY declared point by index
+  (clear-before-fill), including a 0 in the empty path.
+- **Rule to remember:** A size cap that runs AFTER the allocation is decorative — enforce it
+  at the boundary where the bytes arrive. And never cast a wide domain value (token counts,
+  timestamps) directly into a narrow UI/coord type; normalize into the display range first.
+  "Set the point count" is not "set the points" — write every cell you declare.
+
 ## 2026-06-06 — Phase 11 — A sensor's "present" pin is not the same as "valid reading"
 - **Found:** (codex, high) The touch loop trusted XPT2046 `getPoint()` x/y on any
   PENIRQ-low sample but ignored the pressure (`z`). On a noisy/low-pressure edge the chip

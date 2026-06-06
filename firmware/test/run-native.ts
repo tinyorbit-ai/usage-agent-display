@@ -18,6 +18,7 @@ const vendor = join(repo, "firmware", "vendor");
 const suites = [
   { name: "usage_state (fetch/parse/state)", source: join(here, "native", "test_usage_state.cpp") },
   { name: "ui_input (touch routing)", source: join(here, "native", "test_ui_input.cpp") },
+  { name: "agent_filter (parse + selection)", source: join(here, "native", "test_agent_filter.cpp") },
 ];
 
 const tmp = mkdtempSync(join(tmpdir(), "usage-fw-"));

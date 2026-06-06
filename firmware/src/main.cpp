@@ -20,7 +20,8 @@
 #include <XPT2046_Touchscreen.h>
 
 #include "config.h"  // gitignored: WIFI_SSID/PASSWORD, API_BASE_URL, API_BEARER_TOKEN, POLL_INTERVAL_MS
-#include "touch_config.h"  // COMMITTED: kTouchCal, kTimeTabHitBoxes, kTouchTiming (ADR 0015)
+#include "touch_config.h"  // COMMITTED: kTouchCal, kTimeTabHitBoxes, kAllHitBoxes, kTouchTiming (ADR 0015)
+#include "usage_state.h"   // host-tested: bounded parsePanel + (timeframe × agent) selection (ADR 0014)
 
 LV_FONT_DECLARE(pixel8);   // tabs, graph labels, footer (small meta)
 LV_FONT_DECLARE(pixel16);  // agent rows, sublabels
@@ -49,35 +50,52 @@ static const uint32_t kHero = 0x7EE787, kCost = 0xFFD479, kDim = 0x8B98A8, kFain
 static const uint32_t kClaude = 0xA78BFA, kCodex = 0x56D4DD, kGemini = 0xF0883E;
 static const uint32_t kSegOn = 0x06210D, kWhite = 0xE6EDF3;
 
-// One timeframe's live numbers.
-struct TfData {
-  long long tokens = 0;
-  double cost = 0;
-  int days = 0;
-  long long claude = 0, codex = 0, gemini = 0;
-};
-static TfData g_data[3];                       // [today, d30, all]
-static long g_daily[14];                       // tokens/day (millions not needed; raw, autoscaled)
-static int g_dailyN = 0;
-static char g_month[24] = "";                  // graph right label (month-to-date)
-static char g_lastUsed[28] = "";               // footer left
-static char g_sync[16] = "connecting";         // footer right
+// The WHOLE live summary parse now lives in the host-tested core (usage_state.h) — the
+// firmware is a pure renderer over PanelData, selected by (timeframe × agent).
+static usage::PanelData g_panel;
+static char g_sync[16] = "connecting";          // footer right (sync status text)
 static bool g_haveData = false;
 static int g_tf = 1;                            // start 30d
+static int g_agent = usage::AGENT_ALL;          // start ALL (combined)
 
-// Live label/handles updated on poll + tab change.
+// Live label/handles updated on poll + tab/agent change.
 static lv_obj_t* g_hero = nullptr;
 static lv_obj_t* g_cost = nullptr;
 static lv_obj_t* g_rate = nullptr;
 static lv_obj_t* g_agentVal[3] = {nullptr, nullptr, nullptr};
-static lv_obj_t* g_monthLbl = nullptr;
+static lv_obj_t* g_agentName[3] = {nullptr, nullptr, nullptr};
+static lv_obj_t* g_monthLbl = nullptr;          // graph right label (month / agent peak / empty note)
 static lv_obj_t* g_footL = nullptr;
 static lv_obj_t* g_footR = nullptr;
 static lv_obj_t* g_tabHi[3] = {nullptr, nullptr, nullptr};
 static lv_obj_t* g_tabLabel[3] = {nullptr, nullptr, nullptr};
+static lv_obj_t* g_chipHi[4] = {nullptr, nullptr, nullptr, nullptr};
+static lv_obj_t* g_chipLabel[4] = {nullptr, nullptr, nullptr, nullptr};
 static lv_obj_t* g_chart = nullptr;
 static lv_chart_series_t* g_series = nullptr;
 static const lv_coord_t kAgentY[3] = {98, 120, 142};
+
+// Brand colors: per agent row (claude/codex/gemini) and the at-a-distance recolor cue.
+static const uint32_t kAgentRowColor[3] = {kClaude, kCodex, kGemini};
+static const char* kChipName[4] = {"ALL", "CLAUDE", "CODEX", "GEMINI"};  // for the graph note
+// Hero + graph color for the selected agent (ALL stays the green hero color).
+static uint32_t heroColorFor(int agent) {
+  switch (agent) {
+    case usage::AGENT_CLAUDE: return kClaude;
+    case usage::AGENT_CODEX: return kCodex;
+    case usage::AGENT_GEMINI: return kGemini;
+    default: return kHero;
+  }
+}
+// Chip brand color (chip index 0..3; ALL is white).
+static uint32_t chipColorFor(int chip) {
+  switch (chip) {
+    case 1: return kClaude;
+    case 2: return kCodex;
+    case 3: return kGemini;
+    default: return kWhite;
+  }
+}
 
 static void flush_cb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* pixels) {
   uint32_t w = area->x2 - area->x1 + 1, h = area->y2 - area->y1 + 1;
@@ -150,38 +168,93 @@ static void fmtAge(long sec, char* out, size_t n) {
   else snprintf(out, n, "%ldd", sec / 86400);
 }
 
-// Render the active timeframe from g_data (and footer/graph from the shared fields).
+static void updateGraph();  // defined below; renderActive drives it on every change
+
+// Render the panel for the current (timeframe × agent) selection from g_panel. ALL is
+// the combined view; a named agent re-scopes hero + cost + graph to that provider, the
+// breakdown rows dim all but the selected, and an idle agent gets a designed empty state.
 static void renderActive() {
+  // Time tabs: selected = filled green pill + dark label.
   for (int i = 0; i < 3; i++) {
     if (i == g_tf) lv_obj_clear_flag(g_tabHi[i], LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(g_tabHi[i], LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_text_color(g_tabLabel[i], lv_color_hex(i == g_tf ? kSegOn : kFaint), LV_PART_MAIN);
   }
-  const TfData& d = g_data[g_tf];
-  char b[24];
-  if (!g_haveData) { lv_label_set_text(g_hero, "--"); }
-  else { humanize(d.tokens, b, sizeof(b)); lv_label_set_text(g_hero, b); }
+  // Agent chips: selected = filled BRAND pill + dark label (non-color signal); others
+  // keep their brand-colored label (always identifiable).
+  for (int c = 0; c < 4; c++) {
+    if (c == g_agent) {
+      lv_obj_set_style_bg_color(g_chipHi[c], lv_color_hex(chipColorFor(c)), LV_PART_MAIN);
+      lv_obj_clear_flag(g_chipHi[c], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_text_color(g_chipLabel[c], lv_color_hex(kBg), LV_PART_MAIN);
+    } else {
+      lv_obj_add_flag(g_chipHi[c], LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_style_text_color(g_chipLabel[c], lv_color_hex(chipColorFor(c)), LV_PART_MAIN);
+    }
+  }
 
-  snprintf(b, sizeof(b), "$%lld", (long long)llround(d.cost));
+  const bool filtered = (g_agent != usage::AGENT_ALL);
+  const uint32_t heroCol = heroColorFor(g_agent);
+  char b[28];
+
+  // Hero — selected (timeframe, agent), recolored to the agent's brand (the glance cue).
+  const long long heroTok = usage::selectHero(g_panel, g_tf, g_agent);
+  if (!g_haveData) lv_label_set_text(g_hero, "--");
+  else { humanize(heroTok, b, sizeof(b)); lv_label_set_text(g_hero, b); }
+  lv_obj_set_style_text_color(g_hero, lv_color_hex(heroCol), LV_PART_MAIN);
+
+  // Cost + $/day run-rate for the selection (honest per-agent cost, never combined).
+  const double cost = usage::selectCost(g_panel, g_tf, g_agent);
+  const int days = usage::selectDays(g_panel, g_tf);
+  snprintf(b, sizeof(b), "$%lld", (long long)llround(cost));
   lv_label_set_text(g_cost, b);
   alignRight(g_cost, 312, 36);
-
   if (g_tf == 0) snprintf(b, sizeof(b), "today");
-  else if (d.days > 0) snprintf(b, sizeof(b), "$%lld/day", (long long)llround(d.cost / d.days));
+  else if (days > 0) snprintf(b, sizeof(b), "$%lld/day", (long long)llround(cost / days));
   else snprintf(b, sizeof(b), " ");
   lv_label_set_text(g_rate, b);
   alignRight(g_rate, 312, 74);
 
-  const long long vals[3] = {d.claude, d.codex, d.gemini};
+  // Breakdown rows: always the three providers for this timeframe; under a filter the
+  // selected row stays bright and the others dim (selection ≠ the always-colored dots).
   for (int i = 0; i < 3; i++) {
-    humanize(vals[i], b, sizeof(b));
+    humanize(g_panel.tf[g_tf].provTokens[i], b, sizeof(b));
     lv_label_set_text(g_agentVal[i], b);
     alignRight(g_agentVal[i], 312, kAgentY[i]);
+    const bool isSel = filtered && (g_agent - 1 == i);
+    const bool dim = filtered && !isSel;
+    lv_obj_set_style_text_color(g_agentVal[i], lv_color_hex(dim ? kFaint : kWhite), LV_PART_MAIN);
+    lv_obj_set_style_text_color(g_agentName[i], lv_color_hex(dim ? kFaint : kAgentRowColor[i]), LV_PART_MAIN);
   }
 
-  lv_label_set_text(g_monthLbl, g_month);
+  // Graph (recolored, deterministic redraw) + its right label.
+  updateGraph();
+  long long series[usage::kMaxDailyPoints];
+  const int sn = usage::selectSeries(g_panel, g_agent, series, usage::kMaxDailyPoints);
+  const long long peak = usage::seriesPeak(series, sn);
+  const bool emptyFilter = filtered && g_haveData && heroTok == 0 && peak == 0;
+  if (emptyFilter) {
+    snprintf(b, sizeof(b), "NO %s 14d", kChipName[g_agent]);  // designed empty-filter state
+  } else if (filtered) {
+    char pk[12]; humanize(peak, pk, sizeof(pk));
+    snprintf(b, sizeof(b), "%s PK %s", kChipName[g_agent], pk);
+  } else {
+    char mt[12]; humanize(g_panel.monthTokens, mt, sizeof(mt));
+    snprintf(b, sizeof(b), "MONTH %s", mt);
+  }
+  lv_label_set_text(g_monthLbl, b);
   alignRight(g_monthLbl, 312, 166);
-  lv_label_set_text(g_footL, g_lastUsed);
+
+  // Footer: last-used / active machine, and the sync status (selection survives both).
+  if (g_haveData && g_panel.hasLastUsed) {
+    char age[12]; fmtAge(g_panel.lastUsedAge, age, sizeof(age));
+    snprintf(b, sizeof(b), "LAST USED %s %s", g_panel.lastUsedProvider, age);
+  } else if (g_haveData && g_panel.hasActive) {
+    snprintf(b, sizeof(b), "ACTIVE %s", g_panel.activeMachine);
+  } else {
+    b[0] = '\0';
+  }
+  lv_label_set_text(g_footL, b);
   lv_label_set_text(g_footR, g_sync);
   alignRight(g_footR, 312, 220);
 }
@@ -200,8 +273,20 @@ static void buildScreen() {
     g_tabLabel[i] = mkLabel(scr, 0, 0, &pixel8, kFaint, labels[i]);
     centerIn(g_tabLabel[i], x, segW, 13);
   }
-  lv_obj_t* tag = mkLabel(scr, 0, 12, &pixel8, kFaint, "ALL AGENTS");
-  alignRight(tag, 312, 12);
+  // Agent control (phase 12): 4 chips ALL / CC / CX / GE in the right band of the top
+  // bar. Drawn pills mirror the time-tab style; hit-boxes are in touch_config.h
+  // (kAgentHitBoxes) and are kept geometrically in sync with these draw positions.
+  const lv_coord_t chipW = 40;
+  const lv_coord_t chipX0 = 150;  // matches kAgentHitBoxes[0].x0
+  const char* chipLabels[4] = {"ALL", "CC", "CX", "GE"};
+  mkRect(scr, chipX0 - 2, 6, chipW * 4, 22, kCard, 6, kBorder);
+  for (int c = 0; c < 4; c++) {
+    lv_coord_t x = chipX0 + chipW * c;
+    g_chipHi[c] = mkRect(scr, x, 9, chipW - 2, 16, chipColorFor(c), 4, 0);
+    lv_obj_add_flag(g_chipHi[c], LV_OBJ_FLAG_HIDDEN);
+    g_chipLabel[c] = mkLabel(scr, 0, 0, &pixel8, chipColorFor(c), chipLabels[c]);
+    centerIn(g_chipLabel[c], x, chipW - 2, 13);
+  }
 
   g_hero = mkLabel(scr, 10, 30, &pixel40, kHero, "--");
   mkLabel(scr, 12, 74, &pixel16, kDim, "tokens");
@@ -212,7 +297,7 @@ static void buildScreen() {
   const uint32_t cols[3] = {kClaude, kCodex, kGemini};
   for (int i = 0; i < 3; i++) {
     mkDot(scr, 12, kAgentY[i] + 4, cols[i]);
-    mkLabel(scr, 28, kAgentY[i], &pixel16, cols[i], names[i]);
+    g_agentName[i] = mkLabel(scr, 28, kAgentY[i], &pixel16, cols[i], names[i]);
     g_agentVal[i] = mkLabel(scr, 0, kAgentY[i], &pixel16, kWhite, "");
   }
 
@@ -237,31 +322,70 @@ static void buildScreen() {
   alignRight(g_footR, 312, 220);
 }
 
+// Redraw the bar graph for the SELECTED agent's series. Recolors to the agent's brand,
+// autoscales to the series' OWN max, and writes every bar BY INDEX (clear-before-fill) so
+// a redraw is a pure function of the selected series — no ring-buffer stale bars across
+// filter toggles (the deterministic-redraw requirement).
+static const lv_coord_t kGraphScale = 1000;  // bars normalized to 0..kGraphScale
+
 static void updateGraph() {
-  if (!g_series || g_dailyN == 0) return;
-  long maxV = 1;
-  for (int i = 0; i < g_dailyN; i++) if (g_daily[i] > maxV) maxV = g_daily[i];
-  lv_chart_set_point_count(g_chart, g_dailyN);
-  lv_chart_set_range(g_chart, LV_CHART_AXIS_PRIMARY_Y, 0, (lv_coord_t)maxV);
-  for (int i = 0; i < g_dailyN; i++)
-    lv_chart_set_next_value(g_chart, g_series, (lv_coord_t)g_daily[i]);
+  if (!g_series) return;
+  long long series[usage::kMaxDailyPoints];
+  const int n = usage::selectSeries(g_panel, g_agent, series, usage::kMaxDailyPoints);
+  // Autoscale to the SELECTED series' own max, then normalize bar heights into a small
+  // lv_coord_t range — token counts are 64-bit (billions) and would wrap if cast straight
+  // to LVGL's 16-bit coords (codex P12). Range is fixed; only the normalized values vary.
+  long long maxV = usage::seriesPeak(series, n);
+  if (maxV < 1) maxV = 1;
+  g_series->color = lv_color_hex(heroColorFor(g_agent));
+  // LVGL's bar chart divides by (point_cnt - 1), so point_cnt MUST stay >= 2 — a count of
+  // 1 (e.g. at boot before any data) is an IntegerDivideByZero crash (lv_chart.c:1228).
+  const int points = n >= 2 ? n : 2;
+  lv_chart_set_point_count(g_chart, points);
+  lv_chart_set_range(g_chart, LV_CHART_AXIS_PRIMARY_Y, 0, kGraphScale);
+  // Write EVERY declared point by index (clear-before-fill) — a redraw is a pure function
+  // of the selected series, never the prior ring-buffer state. Points beyond the series
+  // (incl. the whole axis when empty) are written 0 so no stale bar survives.
+  for (int i = 0; i < points; i++) {
+    const lv_coord_t h = (i < n) ? (lv_coord_t)((series[i] * kGraphScale) / maxV) : 0;
+    lv_chart_set_value_by_id(g_chart, g_series, i, h);
+  }
   lv_chart_refresh(g_chart);
 }
 
-// Pull tokens for a named provider out of a by_provider array.
-static long long providerTokens(JsonArrayConst arr, const char* name) {
-  for (JsonObjectConst p : arr)
-    if (strcmp(p["provider"] | "", name) == 0) return p["tokens"] | 0LL;
-  return 0;
-}
-static void fillTf(JsonObjectConst tf, TfData& d) {
-  d.tokens = tf["tokens"] | 0LL;
-  d.cost = tf["cost_usd"] | 0.0;
-  d.days = tf["days"] | 0;
-  JsonArrayConst bp = tf["by_provider"];
-  d.claude = providerTokens(bp, "claude-code");
-  d.codex = providerTokens(bp, "codex");
-  d.gemini = providerTokens(bp, "gemini");
+// Read the response body into `out`, enforcing kMaxBodyBytes BEFORE the heap fills: a
+// known-oversize Content-Length is rejected outright, and a chunked/unknown stream is
+// aborted the moment it crosses the cap — so an oversized /usage/summary can't OOM the
+// ESP32 before the bounded parse even runs (codex P12). Returns false on oversize/abort.
+static bool readBoundedBody(HTTPClient& http, String& out) {
+  const int contentLen = http.getSize();
+  if (contentLen > static_cast<int>(usage::kMaxBodyBytes)) return false;  // declared oversize
+  WiFiClient* stream = http.getStreamPtr();
+  if (stream == nullptr) return false;
+  out = "";
+  out.reserve((contentLen > 0 ? contentLen : 2048) + 1);
+  char buf[513];
+  size_t total = 0;
+  const uint32_t deadline = millis() + 8000;
+  while (millis() < deadline) {
+    const int avail = stream->available();
+    if (avail > 0) {
+      int toRead = avail < static_cast<int>(sizeof(buf) - 1) ? avail : static_cast<int>(sizeof(buf) - 1);
+      const int n = stream->readBytes(buf, toRead);
+      if (n <= 0) break;
+      total += static_cast<size_t>(n);
+      if (total > usage::kMaxBodyBytes) return false;  // streamed past the cap → abort, don't grow
+      buf[n] = '\0';
+      out += buf;
+    } else if (!http.connected()) {
+      break;  // server closed and nothing left buffered → complete
+    } else if (contentLen >= 0 && total >= static_cast<size_t>(contentLen)) {
+      break;  // got the full declared body
+    } else {
+      delay(5);  // awaiting more bytes
+    }
+  }
+  return true;
 }
 
 // Fetch /usage/summary and refresh state. Returns true on a good parse. Speaks HTTPS
@@ -293,45 +417,29 @@ static bool poll() {
   http.addHeader("Authorization", String("Bearer ") + API_BEARER_TOKEN);
   int code = http.GET();
   if (code != 200) { snprintf(g_sync, sizeof(g_sync), "err %d", code); http.end(); return false; }
-  String body = http.getString();
+  String body;
+  const bool read = readBoundedBody(http, body);
   http.end();
+  if (!read) { snprintf(g_sync, sizeof(g_sync), "big"); return false; }
 
-  JsonDocument doc;
-  if (deserializeJson(doc, body)) { snprintf(g_sync, sizeof(g_sync), "parse"); return false; }
-  JsonObjectConst tfs = doc["timeframes"];
-  fillTf(tfs["today"], g_data[0]);
-  fillTf(tfs["d30"], g_data[1]);
-  fillTf(tfs["all"], g_data[2]);
-
-  JsonArrayConst daily = doc["daily"];
-  g_dailyN = 0;
-  for (JsonObjectConst pt : daily) { if (g_dailyN >= 14) break; g_daily[g_dailyN++] = pt["tokens"] | 0L; }
-
-  char mtok[16];
-  humanize((long long)(doc["month"]["tokens"] | 0LL), mtok, sizeof(mtok));
-  snprintf(g_month, sizeof(g_month), "MONTH %s", mtok);
-
-  if (!doc["last_used"].isNull()) {
-    char age[12];
-    fmtAge((long)(doc["last_used"]["age_seconds"] | 0L), age, sizeof(age));
-    const char* p = doc["last_used"]["provider"] | "";
-    snprintf(g_lastUsed, sizeof(g_lastUsed), "LAST USED %s %s", p, age);
-  } else if (!doc["active_machine"].isNull()) {
-    snprintf(g_lastUsed, sizeof(g_lastUsed), "ACTIVE %s", doc["active_machine"] | "");
-  } else {
-    g_lastUsed[0] = '\0';
+  // The whole parse runs in the bounded host-tested core (kMaxBodyBytes + clamped arrays).
+  // Parse into a TEMP first so a bad/oversize body keeps the last-good panel (the filter
+  // still works on last-good data) instead of clearing it.
+  usage::PanelData parsed;
+  if (!usage::parsePanel(body.c_str(), body.length(), parsed)) {
+    snprintf(g_sync, sizeof(g_sync), "parse");
+    return false;
   }
+  g_panel = parsed;
+  g_haveData = true;
 
-  if (!doc["last_sync"].isNull()) {
+  if (g_panel.hasLastSync) {
     char age[12];
-    fmtAge((long)(doc["last_sync"]["age_seconds"] | 0L), age, sizeof(age));
+    fmtAge(g_panel.lastSyncAge, age, sizeof(age));
     snprintf(g_sync, sizeof(g_sync), "SYNC %s", age);
   } else {
     snprintf(g_sync, sizeof(g_sync), "SYNC --");
   }
-
-  g_haveData = true;
-  updateGraph();
   return true;
 }
 
@@ -365,11 +473,19 @@ void loop() {
   lv_timer_handler();
 
   static uint32_t lastPoll = 0;
+  static bool wifiLogged = false;
   uint32_t now = millis();
+  if (!wifiLogged && WiFi.status() == WL_CONNECTED) {
+    wifiLogged = true;
+    Serial.printf("[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
+  }
   if (lastPoll == 0 || now - lastPoll >= POLL_INTERVAL_MS) {
     lastPoll = now;
-    poll();
+    const bool ok = poll();
     renderActive();
+    // Diagnostic (observability + verification): sync status + the live selection.
+    Serial.printf("[poll] ok=%d %s  hero(tf=%d,agent=%d)=%lld  daily=%d\n", ok, g_sync, g_tf,
+                  g_agent, (long long)usage::selectHero(g_panel, g_tf, g_agent), g_panel.dailyN);
   }
 
   // Direct-tap the timeframe tabs (phase 11, ADR 0015). Read real XPT2046 coordinates
@@ -389,10 +505,13 @@ void loop() {
     Serial.printf("touch raw=(%d,%d) -> screen=(%d,%d) z=%d valid=%d\n", rawX, rawY, mx, my, rawZ, inRange);
   }
   ui::Tap tap;
-  if (ui::touchGate(g_touchGate, ui::kTouchCal, ui::kTimeTabHitBoxes, ui::kTimeTabHitBoxCount,
+  if (ui::touchGate(g_touchGate, ui::kTouchCal, ui::kAllHitBoxes, ui::kAllHitBoxCount,
                     now, penirq, rawX, rawY, rawZ, ui::kTouchTiming, tap)) {
     if (tap.kind == ui::TapKind::TimeTab) {
       g_tf = tap.index;
+      renderActive();
+    } else if (tap.kind == ui::TapKind::AgentChip) {
+      g_agent = tap.index;  // index matches usage::Agent (0=ALL..3=gemini)
       renderActive();
     }
   }

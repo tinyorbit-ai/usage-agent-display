@@ -128,6 +128,43 @@ int main() {
     }
   check("time-tab hit-boxes are mutually disjoint", !anyOverlap);
 
+  // --- phase 12: agent-chip routing over the COMBINED table (time tabs + agent chips) ---
+  std::printf("\nagent-chip routing (combined table):\n");
+  auto routeAll = [](int x, int y) { return routeScreen(kAllHitBoxes, kAllHitBoxCount, x, y); };
+  // Time-axis routing is unchanged in the combined table.
+  check("combined: TODAY center → TimeTab 0", routeAll(30, 12).kind == TapKind::TimeTab && routeAll(30, 12).index == 0);
+  check("combined: ALL-time center → TimeTab 2", routeAll(110, 12).kind == TapKind::TimeTab && routeAll(110, 12).index == 2);
+  // Agent chips route by index (0=ALL,1=claude,2=codex,3=gemini).
+  check("agent chip ALL center → AgentChip 0", routeAll(168, 12).kind == TapKind::AgentChip && routeAll(168, 12).index == 0);
+  check("agent chip CLAUDE center → AgentChip 1", routeAll(208, 12).kind == TapKind::AgentChip && routeAll(208, 12).index == 1);
+  check("agent chip CODEX center → AgentChip 2", routeAll(248, 12).kind == TapKind::AgentChip && routeAll(248, 12).index == 2);
+  check("agent chip GEMINI center → AgentChip 3", routeAll(288, 12).kind == TapKind::AgentChip && routeAll(288, 12).index == 3);
+  // The wide dead band between the two groups selects nothing — a near-miss never flips
+  // the wrong axis.
+  check("between-groups gap x=140 → None", routeAll(140, 12).kind == TapKind::None);
+  check("between-groups gap x=129 → None", routeAll(129, 12).kind == TapKind::None);
+  // Inter-chip gaps select nothing.
+  check("agent inter-chip gap x=188 → None", routeAll(188, 12).kind == TapKind::None);
+  check("agent inter-chip gap x=228 → None", routeAll(228, 12).kind == TapKind::None);
+
+  // No screen point maps to BOTH a time tab and an agent chip (the two groups are
+  // geometrically disjoint across the whole combined table) — and chips meet ≥36×40.
+  bool anyCrossOverlap = false, agentBigEnough = true;
+  for (size_t i = 0; i < kAllHitBoxCount; i++) {
+    const HitBox& a = kAllHitBoxes[i];
+    if (a.kind == TapKind::AgentChip) {
+      const int w = a.x1 - a.x0 + 1, h = a.y1 - a.y0 + 1;
+      if (w < 36 || h < 40) agentBigEnough = false;
+    }
+    for (size_t j = i + 1; j < kAllHitBoxCount; j++) {
+      const HitBox& b = kAllHitBoxes[j];
+      const bool overlap = a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1;
+      if (overlap) anyCrossOverlap = true;
+    }
+  }
+  check("no point maps to both a time tab and an agent chip (groups disjoint)", !anyCrossOverlap);
+  check("every agent-chip hit-box is >=36px wide and >=40px tall", agentBigEnough);
+
   // --- touch gate: PENIRQ gating, debounce, no re-arm under a held press ---
   std::printf("\ntouch gate (debounce / gating / chatter):\n");
   // Raw coords that route to TODAY (center) under the real calibration. Compute them so

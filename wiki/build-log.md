@@ -3,8 +3,50 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 12 — Firmware: agent control + full-readout filter
+**Branch:** `phase/12-agent-filter` → squashed to `main`
+
+- **The panel now filters by agent.** The static `ALL AGENTS` label became a 4-segment
+  control (ALL + CC/CX/GE chips) in the top bar's right band, mirroring the time tabs.
+  State is **(timeframe × agent)**, both direct-tap. Selecting an agent re-scopes hero +
+  cost + the 14-day graph to that provider (recolored to its brand — the at-a-distance
+  cue), dims the non-selected breakdown rows, and labels the agent's peak day; the selected
+  chip is a filled brand pill (the non-color signal). `ALL` restores the combined view
+  **exactly** (regression-locked in tests). ([[decisions/0014-agent-filter-direct-tap]].)
+- **The whole live parse moved into the bounded host-tested core** (`usage::parsePanel`),
+  closing the P7/P10 unbounded-`JsonDocument` regression: `kMaxBodyBytes` is now enforced at
+  **read time** (`readBoundedBody` streams + aborts past the cap, so an oversized body can't
+  OOM before the parse), and every `daily_by_provider[*]` array is clamped to the combined
+  axis + buffer, zero-padded, and bound-checked. `select{Hero,Cost,Series}` are honest — a
+  named agent absent from a timeframe returns **0 / a zero series, never the combined total**
+  (the dishonest-fallback trap killed in review).
+- **Why the codex catches mattered:** chips bind to the **production** provider ids
+  (`claude-code`, not `claude`) or a live chip shows permanent zeros; token series are
+  **64-bit** and the chart **normalizes** to a fixed range (a straight cast to LVGL's 16-bit
+  coord wrapped billions to garbage bars); the redraw writes **every point by index**
+  (clear-before-fill) so CODEX→ALL→CODEX gives identical bars. ([[learnings]] 2026-06-06.)
+- **On-device:** first flash **boot-looped** (LVGL bar chart ÷0 when `point_count==1` at
+  boot) — caught only by the hardware flash, not the green host suite/build; fixed (min 2
+  points). See [[notes/2026-06-06-chart-point-count-divide-by-zero]]. The combined firmware
+  (phases 11 + 12) now **boots, joins WiFi, polls HTTPS, parses on the bounded core, and
+  renders live** — serial-confirmed `30D × ALL = 7.27B, daily=14`, matching the deployed
+  backend.
+- **Gate:** `bun run gate` — **green**: typecheck, `check:sql`, `check:fwcore`,
+  `scan:secrets`, 138 unit tests, **firmware native (3 TUs incl. the new agent-filter
+  parse/selection + bounded-array suite)**, e2e, ops smoke. Device build links at **87.5%
+  flash**. Top bar mocked at 320×240 and spacing photo-verified before wiring.
+- **Hardware (manual, observable):** live render confirmed on the CYD via serial. The
+  **physical tap verification** — direct-tap each agent chip + time tab, CODEX→ALL→CODEX
+  bar stability, idle-agent empty state, and tuning `kTouchCal` from the serial
+  `touch raw=…→screen=…` print — is the remaining at-the-board step (needs fingers on glass).
+
 ## Phase 11 — Firmware: real touch coordinates (direct-tap time tabs)
 **Branch:** `phase/11-touch-coordinates` → squashed to `main`
+
+> **Hardware update (2026-06-06):** the combined phase 11+12 firmware is flashed and boots
+> live (serial-confirmed). Direct-tap calibration/tap verification is folded into phase 12's
+> at-the-board step above (both touch features ship in one flash).
+
 
 - **Time tabs are now DIRECT-TAP.** The PENIRQ any-tap-cycle is gone; the firmware reads
   real XPT2046 coordinates and routes a tap to the specific tab under the finger. All the
