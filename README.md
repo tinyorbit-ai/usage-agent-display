@@ -86,6 +86,23 @@ and asserts it appears in `by_provider[]` and the combined total with zero core 
   access goes through prepared statements (enforced by `scripts/check-no-raw-sql.ts`).
 - `bun run scan:secrets` runs `gitleaks` (if installed) or a focused fallback scan.
 
+## Run a daemon on a machine
+
+Make any machine a usage source — one command installs a background service that
+auto-starts on login and restarts on failure (launchd on macOS, systemd `--user` on Linux):
+
+```sh
+git clone https://github.com/tinyorbit-ai/usage-agent-display
+cd usage-agent-display && bun install
+USAGE_SERVER_URL="https://usage.your-domain" USAGE_BEARER_TOKEN="<shared-secret>" \
+  bun run daemon:install     # prompts for anything you don't pass
+```
+
+It compiles the daemon to a single binary in `~/.usage-agent/`, writes the service with
+your config (the token lives only in that local service file), and starts it. Re-run after
+a `git pull` to update. `USAGE_MACHINE_ID` defaults to the hostname; needs `bunx`/`npx`
+for ccusage (or set `USAGE_CCUSAGE_CMD`). Uninstall instructions print on install.
+
 ## License
 
 [MIT](LICENSE). The bundled **Silkscreen** font (`firmware/vendor/fonts/`, and the
