@@ -20,7 +20,7 @@
 #define LV_TICK_CUSTOM_SYS_TIME_EXPR (millis())
 #define LV_DISP_DEF_REFR_PERIOD 30
 
-// Fonts: the small default plus the large hero font used by main.cpp.
+// Fonts: the UI uses embedded 1bpp Silkscreen pixel fonts (src/fonts/pixel*.c) for a
+// crisp, fringe-free look. montserrat_14 stays only as LVGL's internal default fallback.
 #define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_28 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_14

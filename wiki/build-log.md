@@ -3,6 +3,36 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 7 — Panel visual polish + working timeframe tabs (live)
+**Branch:** `phase/7-panel-visual-polish` → squashed to `main`
+
+- **The panel finally looks designed.** First on-device render (phase 1–4 firmware) was
+  legible but crude — plain gray labels, raw 10-digit numbers, no hierarchy. Phase 7
+  reskins it to the locked **"C2 · Daily Rate"** design: dark bg, big green abbreviated
+  hero (`2.41B`), amber cost as a **$/day run-rate**, color-coded named agent rows
+  (Claude/Codex/Gemini), a **tokens/day-over-14-days** bar graph, and a last-used + sync
+  footer. Crisp **1bpp Silkscreen pixel fonts** (8/16/24/40, embedded, see
+  `firmware/vendor/fonts/NOTICE.md`) kill the anti-alias fringe; size hierarchy
+  (hero 40 > cost 24 > agents 16 > meta 8) prevents the wide-font collisions.
+- **Working timeframe tabs.** Tap anywhere cycles **TODAY → 30D → ALL** via the XPT2046
+  **PENIRQ** line (GPIO36, active-low) — no touch-coordinate calibration. Each tab shows
+  real per-timeframe data.
+- **Server contract (additive).** `/usage/summary` gained `timeframes` (today/30d/all,
+  each with tokens + cost + active-day count + per-provider split), a 14-point `daily`
+  series for the graph, and `last_used`. New `Db` queries: `byProviderSince`,
+  `daysSince`, `dailySeries`, `lastUsed` (all parameterized; no raw SQL).
+- **Design method — flash the winner, not every guess.** Iterated in disposable HTML
+  mockups (`screen-mockups*.html`, `screen-tabs.html`) with real data, then flashed a
+  *static* version, used an on-device **photo** to fix exact spacing, then wired live.
+- **Gate:** `bun run gate` — full suite green incl. **+4 timeframe tests** (today/30d/all
+  bucket-range split, active-day counts, per-provider split, daily series order, last_used,
+  empty-DB zeros); typecheck clean; e2e + ops smoke green. Verified live end-to-end: the
+  CYD polls the server and renders real TODAY 134M / 30D 2.44B / ALL 3.41B with working tabs.
+- **Known gaps (→ [[improvements]]):** tabs *cycle* (per-tab tap needs touch calibration);
+  `last_used` currently null (session `activity_at` not populating from ccusage v20);
+  the new firmware fetch/parse path is **not yet host-tested** (the old `usage_state.h`
+  core is now unused by `main.cpp` — [[decisions/0007-firmware-host-testable-core]] regressed).
+
 ## Phase 6 — ccusage v20 multi-agent + first-light deploy
 **Branch:** `phase/6-ccusage-v20-multiagent` → squashed to `main`
 

@@ -88,6 +88,10 @@ export class Db {
   private readonly samplesInWindowStmt: Statement<TotalSample, [number]>;
   private readonly boundarySamplesStmt: Statement<TotalSample, [number]>;
   private readonly pruneSnapshotsStmt: Statement<unknown, [number]>;
+  private readonly byProviderSinceStmt: Statement<GroupRollup, [string]>;
+  private readonly daysSinceStmt: Statement<{ days: number }, [string]>;
+  private readonly dailySeriesStmt: Statement<{ date: string; tokens: number }, [number]>;
+  private readonly lastUsedStmt: Statement<{ provider: string; activity: number }, []>;
 
   constructor(path = ":memory:") {
     this.handle = new Database(path);
@@ -259,6 +263,50 @@ export class Db {
     this.pruneSnapshotsStmt = this.handle.query(
       `DELETE FROM snapshots WHERE received_at < ?;`,
     );
+
+    // --- phase 7: timeframe tabs (today / 30d / all) + daily graph + last-used. ---
+
+    // Per-provider daily tokens/cost whose bucket date is >= the given lower bound
+    // (lexicographic = chronological for YYYY-MM-DD). `""` includes everything. Same
+    // replicate-then-dedup-cost rule as byProvider. Producer-local date TZ caveat applies.
+    this.byProviderSinceStmt = this.handle.query(
+      `SELECT provider AS key,
+              CAST(SUM(tokens) AS INTEGER) AS tokens,
+              SUM(cost) AS cost_usd
+         FROM (
+           SELECT provider, SUM(tokens) AS tokens, MAX(cost_usd) AS cost
+             FROM snapshots WHERE report_type = 'daily' AND bucket >= ?
+            GROUP BY machine_id, provider, model, bucket
+         )
+        GROUP BY provider
+        ORDER BY tokens DESC;`,
+    );
+
+    // Count of distinct daily bucket dates with usage at/after the bound — the
+    // denominator for a $/day run-rate.
+    this.daysSinceStmt = this.handle.query(
+      `SELECT COUNT(DISTINCT bucket) AS days
+         FROM snapshots WHERE report_type = 'daily' AND bucket >= ?;`,
+    );
+
+    // The most recent N daily buckets with their total tokens (newest first; the
+    // caller reverses to oldest→newest for the left-to-right bar graph).
+    this.dailySeriesStmt = this.handle.query(
+      `SELECT bucket AS date, CAST(SUM(tokens) AS INTEGER) AS tokens
+         FROM snapshots WHERE report_type = 'daily'
+        GROUP BY bucket
+        ORDER BY bucket DESC
+        LIMIT ?;`,
+    );
+
+    // The provider with the newest session activity time (date-granular from ccusage).
+    this.lastUsedStmt = this.handle.query(
+      `SELECT provider, MAX(activity_at) AS activity
+         FROM snapshots WHERE report_type = 'session' AND activity_at IS NOT NULL
+        GROUP BY provider
+        ORDER BY activity DESC
+        LIMIT 1;`,
+    );
   }
 
   private migrate(): void {
@@ -356,6 +404,29 @@ export class Db {
   /** The currently-active session's rollup, or null if no session data. */
   activeSession(): SessionRollup | null {
     return this.sessionStmt.get() ?? null;
+  }
+
+  /**
+   * Per-provider daily tokens/cost over a bucket-date range (phase 7). `since` is an
+   * inclusive `YYYY-MM-DD` lower bound; `""` means all-time.
+   */
+  byProviderSince(since: string): GroupRollup[] {
+    return this.byProviderSinceStmt.all(since);
+  }
+
+  /** Count of distinct daily bucket dates at/after `since` (`""` = all-time). */
+  daysSince(since: string): number {
+    return this.daysSinceStmt.get(since)?.days ?? 0;
+  }
+
+  /** The most recent `limit` daily buckets, returned oldest→newest. */
+  dailySeries(limit: number): { date: string; tokens: number }[] {
+    return this.dailySeriesStmt.all(limit).reverse();
+  }
+
+  /** The provider with the newest session activity time, or null. */
+  lastUsed(): { provider: string; activity: number } | null {
+    return this.lastUsedStmt.get() ?? null;
   }
 
   /**

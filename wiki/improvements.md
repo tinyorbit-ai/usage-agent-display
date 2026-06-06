@@ -44,6 +44,25 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
   states + desaturated-photo legibility (P2), cost tile (P3), sparkline/glow/ticker (P4),
   unattended full-day run (P5). Batched to the end; board now on USB.
 
+## Phase 7
+
+- **Tabs cycle on any tap, not per-tab tapping.** Tap-anywhere → next timeframe via the
+  XPT2046 PENIRQ line (GPIO36), which needs no touch-coordinate calibration. Per-tab
+  tapping (tap "30D" to jump straight there) needs a touch calibration pass — deferred
+  for robustness over polish ([[decisions/0012-panel-visual-system-v2]]).
+- **`last_used` is null in practice.** The server field works, but session `activity_at`
+  isn't populating from ccusage v20 (session `metadata.lastActivity`), so the footer
+  falls back to `active_machine`/blank. Confirm where v20 exposes session activity, or
+  derive last-used from the daily series. Same date-granularity caveat would apply.
+- **The live firmware fetch/parse is NOT host-tested.** `main.cpp` was rewritten
+  standalone for phase 7 and no longer uses `usage_state.h`, so the new poll/`fillTf`
+  JSON path has no off-device test — a regression against
+  [[decisions/0007-firmware-host-testable-core]]. Extract the parse into a host-compilable
+  core (as phase 1 did) or delete the now-unused `usage_state.h`. Highest-value cleanup.
+- **Graph is constant across tabs.** The tokens/day-14d bars don't change when you switch
+  TODAY/30D/ALL (they're a fixed recent-trend strip). Could make the graph timeframe-aware
+  (e.g. hourly for TODAY, monthly for ALL) — deferred; the constant trend reads fine.
+
 ## Phase 3
 
 - **Projection & budget inherit the producer-bucket TZ limit.** EOD/month projection and

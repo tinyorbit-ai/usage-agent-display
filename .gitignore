@@ -30,8 +30,13 @@ build/
 # SQLite local data
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+
+# Local scratch
+/tmp/
 
 # Editor / OS
 .DS_Store

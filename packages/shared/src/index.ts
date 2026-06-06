@@ -156,10 +156,47 @@ export interface CostInstrument {
 }
 
 /**
+ * One timeframe's rollup (phase 7): hero token total, priced cost, the count of
+ * distinct active days in the window (denominator for a $/day run-rate), and the
+ * per-provider split. Computed from the canonical daily rows over a bucket-date range.
+ */
+export interface TimeframeStat {
+  tokens: number;
+  cost_usd: number;
+  /** distinct daily buckets with usage in the window. */
+  days: number;
+  by_provider: ProviderBreakdown[];
+}
+
+/**
+ * The three timeframes the panel's tabs switch between (phase 7). `today` is the
+ * reckoning day, `d30` the last 30 days, `all` everything retained. Ranges are by
+ * producer-local bucket date (same TZ caveat as month-to-date).
+ */
+export interface Timeframes {
+  today: TimeframeStat;
+  d30: TimeframeStat;
+  all: TimeframeStat;
+}
+
+/** One day's total tokens, for the tokens/day bar graph (phase 7). */
+export interface DailyPoint {
+  /** `YYYY-MM-DD` producer-local bucket date. */
+  date: string;
+  tokens: number;
+}
+
+/** Which provider was last active (phase 7), from the newest session activity time. */
+export interface LastUsed {
+  provider: string;
+  age_seconds: number;
+}
+
+/**
  * The compact `GET /usage/summary` payload the firmware renders. v2 adds the
- * hierarchy breakdowns (provider, machine, session, month) on top of v1's hero.
- * Older (v1) firmware keeps working — it only reads `totals`. Fields are additive.
- * `last_sync` / `session` are null when there is nothing to report.
+ * hierarchy breakdowns (provider, machine, session, month) on top of v1's hero;
+ * phase 7 adds `timeframes`, `daily`, and `last_used` (still additive — older firmware
+ * ignores them). `last_sync` / `session` / `last_used` are null when nothing to report.
  */
 export interface UsageSummary {
   v: 2;
@@ -180,6 +217,12 @@ export interface UsageSummary {
    * on a timer even when idle.
    */
   active_machine: string | null;
+  /** phase 7 — today / 30-day / all-time rollups for the panel's timeframe tabs. */
+  timeframes: Timeframes;
+  /** phase 7 — recent per-day token totals (oldest→newest) for the bar graph. */
+  daily: DailyPoint[];
+  /** phase 7 — which provider was used most recently, or null. */
+  last_used: LastUsed | null;
 }
 
 /** Bounds shared by validation on both ends. Generous but finite — DoS ceilings. */

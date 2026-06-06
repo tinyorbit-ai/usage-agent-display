@@ -1,12 +1,12 @@
-// main.cpp — ESP32-2432S028R ("Cheap Yellow Display") firmware, phase 2.
+// main.cpp — ESP32-2432S028R ("Cheap Yellow Display") — LIVE panel (phase 7).
 //
-// Renders the real dashboard per the fixed metric hierarchy (ADR 0008):
-//   hero tokens > cost > per-provider > per-machine > session > month > last-sync.
-// All fetch/parse/state DECISIONS live in usage_state.h (host-tested); main.cpp is
-// I/O + LVGL rendering. The panel renders a designed state for each PanelKind, each
-// with a second non-color signal (an icon/label prefix) so it reads in a desaturated
-// photo: Connecting "…", Live "●", Partial "◑", AllStale "○ STALE", Disconnected
-// "⚠ OFFLINE", Empty "no data".
+// Renders the locked "C2 · Daily Rate" design from real /usage/summary data:
+//   timeframe tabs (tap to cycle TODAY/30D/ALL) · big green hero · amber cost run-rate ·
+//   named agent rows · tokens/day-14d bar graph · last-used + sync footer.
+//
+// Networking + JSON live here; the visual layout is unchanged from the static preview.
+// Tabs cycle on ANY touch via the XPT2046 PENIRQ line (GPIO36, active-low) — no touch
+// calibration needed. Crisp 1bpp Silkscreen pixel fonts (src/fonts/pixel*.c).
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -14,32 +14,59 @@
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 
-#include "config.h"        // gitignored secrets (see config.h.example)
-#include "usage_state.h"   // pure fetch/parse/state core (host-tested)
+#include "config.h"  // gitignored: WIFI_SSID/PASSWORD, API_BASE_URL, API_BEARER_TOKEN, POLL_INTERVAL_MS
+
+LV_FONT_DECLARE(pixel8);   // tabs, graph labels, footer (small meta)
+LV_FONT_DECLARE(pixel16);  // agent rows, sublabels
+LV_FONT_DECLARE(pixel24);  // cost
+LV_FONT_DECLARE(pixel40);  // hero
 
 static TFT_eSPI tft = TFT_eSPI();
-static const uint16_t kScreenW = 320;  // landscape
+static const uint16_t kScreenW = 320;
 static const uint16_t kScreenH = 240;
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[kScreenW * 10];
 
-// Tiles (created once, updated each poll).
-static lv_obj_t* g_statusChip = nullptr;  // non-color state signal (top-left)
-static lv_obj_t* g_hero = nullptr;        // hero token number (interpolated)
-static lv_obj_t* g_cost = nullptr;        // cost line
-static lv_obj_t* g_providers = nullptr;   // CC vs Codex
-static lv_obj_t* g_machines = nullptr;    // per-machine + age/stale
-static lv_obj_t* g_footer = nullptr;      // session · month · last-sync age
-static lv_obj_t* g_spark = nullptr;       // 1h burn sparkline (phase 4)
-static lv_chart_series_t* g_sparkSeries = nullptr;
+#define TOUCH_IRQ 36  // XPT2046 PENIRQ — idles high, pulled low while touched
 
-// phase 4: the hero ticks smoothly toward the last confirmed total between polls.
-static usage::Ticker g_ticker;
-static char g_activeMachine[24] = "";
+// --- palette ---
+static const uint32_t kBg = 0x0A0E14, kCard = 0x11161F, kBorder = 0x222B3A;
+static const uint32_t kHero = 0x7EE787, kCost = 0xFFD479, kDim = 0x8B98A8, kFaint = 0x5B6675;
+static const uint32_t kClaude = 0xA78BFA, kCodex = 0x56D4DD, kGemini = 0xF0883E;
+static const uint32_t kSegOn = 0x06210D, kWhite = 0xE6EDF3;
+
+// One timeframe's live numbers.
+struct TfData {
+  long long tokens = 0;
+  double cost = 0;
+  int days = 0;
+  long long claude = 0, codex = 0, gemini = 0;
+};
+static TfData g_data[3];                       // [today, d30, all]
+static long g_daily[14];                       // tokens/day (millions not needed; raw, autoscaled)
+static int g_dailyN = 0;
+static char g_month[24] = "";                  // graph right label (month-to-date)
+static char g_lastUsed[28] = "";               // footer left
+static char g_sync[16] = "connecting";         // footer right
+static bool g_haveData = false;
+static int g_tf = 1;                            // start 30d
+
+// Live label/handles updated on poll + tab change.
+static lv_obj_t* g_hero = nullptr;
+static lv_obj_t* g_cost = nullptr;
+static lv_obj_t* g_rate = nullptr;
+static lv_obj_t* g_agentVal[3] = {nullptr, nullptr, nullptr};
+static lv_obj_t* g_monthLbl = nullptr;
+static lv_obj_t* g_footL = nullptr;
+static lv_obj_t* g_footR = nullptr;
+static lv_obj_t* g_tabHi[3] = {nullptr, nullptr, nullptr};
+static lv_obj_t* g_tabLabel[3] = {nullptr, nullptr, nullptr};
+static lv_obj_t* g_chart = nullptr;
+static lv_chart_series_t* g_series = nullptr;
+static const lv_coord_t kAgentY[3] = {98, 120, 142};
 
 static void flush_cb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* pixels) {
-  uint32_t w = area->x2 - area->x1 + 1;
-  uint32_t h = area->y2 - area->y1 + 1;
+  uint32_t w = area->x2 - area->x1 + 1, h = area->y2 - area->y1 + 1;
   tft.startWrite();
   tft.setAddrWindow(area->x1, area->y1, w, h);
   tft.pushColors(reinterpret_cast<uint16_t*>(pixels), w * h, true);
@@ -47,16 +74,236 @@ static void flush_cb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* pixe
   lv_disp_flush_ready(drv);
 }
 
-static lv_obj_t* mkLabel(lv_coord_t x, lv_coord_t y, const lv_font_t* font, lv_color_t color) {
-  lv_obj_t* l = lv_label_create(lv_scr_act());
+static lv_obj_t* mkLabel(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, const lv_font_t* font,
+                         uint32_t color, const char* text) {
+  lv_obj_t* l = lv_label_create(parent);
   lv_obj_set_style_text_font(l, font, LV_PART_MAIN);
-  lv_obj_set_style_text_color(l, color, LV_PART_MAIN);
+  lv_obj_set_style_text_color(l, lv_color_hex(color), LV_PART_MAIN);
   lv_obj_set_pos(l, x, y);
-  lv_label_set_text(l, "");
+  lv_label_set_text(l, text);
   return l;
 }
+static void alignRight(lv_obj_t* l, lv_coord_t rightX, lv_coord_t y) {
+  lv_obj_update_layout(l);
+  lv_obj_set_pos(l, rightX - lv_obj_get_width(l), y);
+}
+static void centerIn(lv_obj_t* l, lv_coord_t boxX, lv_coord_t boxW, lv_coord_t y) {
+  lv_obj_update_layout(l);
+  lv_obj_set_pos(l, boxX + (boxW - lv_obj_get_width(l)) / 2, y);
+}
+static lv_obj_t* mkRect(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h,
+                        uint32_t bg, lv_coord_t radius, uint32_t border) {
+  lv_obj_t* r = lv_obj_create(parent);
+  lv_obj_set_pos(r, x, y);
+  lv_obj_set_size(r, w, h);
+  lv_obj_set_style_bg_color(r, lv_color_hex(bg), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_radius(r, radius, LV_PART_MAIN);
+  lv_obj_set_style_border_width(r, border ? 1 : 0, LV_PART_MAIN);
+  if (border) lv_obj_set_style_border_color(r, lv_color_hex(border), LV_PART_MAIN);
+  lv_obj_set_style_pad_all(r, 0, LV_PART_MAIN);
+  lv_obj_clear_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+  return r;
+}
+static void mkDot(lv_obj_t* parent, lv_coord_t x, lv_coord_t y, uint32_t color) {
+  lv_obj_t* d = lv_obj_create(parent);
+  lv_obj_set_pos(d, x, y);
+  lv_obj_set_size(d, 9, 9);
+  lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(d, lv_color_hex(color), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(d, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(d, 0, LV_PART_MAIN);
+  lv_obj_clear_flag(d, LV_OBJ_FLAG_SCROLLABLE);
+}
 
-static void display_init() {
+// Abbreviate a token count to 3 sig figs with K/M/B.
+static void humanize(long long v, char* out, size_t n) {
+  if (v < 0) v = 0;
+  double x; const char* suf;
+  if (v >= 1000000000LL) { x = v / 1e9; suf = "B"; }
+  else if (v >= 1000000LL) { x = v / 1e6; suf = "M"; }
+  else if (v >= 1000LL) { x = v / 1e3; suf = "K"; }
+  else { snprintf(out, n, "%lld", v); return; }
+  if (x >= 100) snprintf(out, n, "%.0f%s", x, suf);
+  else if (x >= 10) snprintf(out, n, "%.1f%s", x, suf);
+  else snprintf(out, n, "%.2f%s", x, suf);
+}
+// Coarse age: 49s / 12m / 3h / 2d.
+static void fmtAge(long sec, char* out, size_t n) {
+  if (sec < 60) snprintf(out, n, "%lds", sec);
+  else if (sec < 3600) snprintf(out, n, "%ldm", sec / 60);
+  else if (sec < 86400) snprintf(out, n, "%ldh", sec / 3600);
+  else snprintf(out, n, "%ldd", sec / 86400);
+}
+
+// Render the active timeframe from g_data (and footer/graph from the shared fields).
+static void renderActive() {
+  for (int i = 0; i < 3; i++) {
+    if (i == g_tf) lv_obj_clear_flag(g_tabHi[i], LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(g_tabHi[i], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_color(g_tabLabel[i], lv_color_hex(i == g_tf ? kSegOn : kFaint), LV_PART_MAIN);
+  }
+  const TfData& d = g_data[g_tf];
+  char b[24];
+  if (!g_haveData) { lv_label_set_text(g_hero, "--"); }
+  else { humanize(d.tokens, b, sizeof(b)); lv_label_set_text(g_hero, b); }
+
+  snprintf(b, sizeof(b), "$%lld", (long long)llround(d.cost));
+  lv_label_set_text(g_cost, b);
+  alignRight(g_cost, 312, 36);
+
+  if (g_tf == 0) snprintf(b, sizeof(b), "today");
+  else if (d.days > 0) snprintf(b, sizeof(b), "$%lld/day", (long long)llround(d.cost / d.days));
+  else snprintf(b, sizeof(b), " ");
+  lv_label_set_text(g_rate, b);
+  alignRight(g_rate, 312, 74);
+
+  const long long vals[3] = {d.claude, d.codex, d.gemini};
+  for (int i = 0; i < 3; i++) {
+    humanize(vals[i], b, sizeof(b));
+    lv_label_set_text(g_agentVal[i], b);
+    alignRight(g_agentVal[i], 312, kAgentY[i]);
+  }
+
+  lv_label_set_text(g_monthLbl, g_month);
+  alignRight(g_monthLbl, 312, 166);
+  lv_label_set_text(g_footL, g_lastUsed);
+  lv_label_set_text(g_footR, g_sync);
+  alignRight(g_footR, 312, 220);
+}
+
+static void buildScreen() {
+  lv_obj_t* scr = lv_scr_act();
+  lv_obj_set_style_bg_color(scr, lv_color_hex(kBg), LV_PART_MAIN);
+
+  const lv_coord_t segW = 40;
+  const char* labels[3] = {"TODAY", "30D", "ALL"};
+  mkRect(scr, 10, 6, segW * 3, 22, kCard, 6, kBorder);
+  for (int i = 0; i < 3; i++) {
+    lv_coord_t x = 10 + segW * i;
+    g_tabHi[i] = mkRect(scr, x + 1, 9, segW - 2, 16, kHero, 4, 0);
+    lv_obj_add_flag(g_tabHi[i], LV_OBJ_FLAG_HIDDEN);
+    g_tabLabel[i] = mkLabel(scr, 0, 0, &pixel8, kFaint, labels[i]);
+    centerIn(g_tabLabel[i], x, segW, 13);
+  }
+  lv_obj_t* tag = mkLabel(scr, 0, 12, &pixel8, kFaint, "ALL AGENTS");
+  alignRight(tag, 312, 12);
+
+  g_hero = mkLabel(scr, 10, 30, &pixel40, kHero, "--");
+  mkLabel(scr, 12, 74, &pixel16, kDim, "tokens");
+  g_cost = mkLabel(scr, 0, 36, &pixel24, kCost, "");
+  g_rate = mkLabel(scr, 0, 74, &pixel16, kFaint, "");
+
+  const char* names[3] = {"CLAUDE", "CODEX", "GEMINI"};
+  const uint32_t cols[3] = {kClaude, kCodex, kGemini};
+  for (int i = 0; i < 3; i++) {
+    mkDot(scr, 12, kAgentY[i] + 4, cols[i]);
+    mkLabel(scr, 28, kAgentY[i], &pixel16, cols[i], names[i]);
+    g_agentVal[i] = mkLabel(scr, 0, kAgentY[i], &pixel16, kWhite, "");
+  }
+
+  mkLabel(scr, 10, 166, &pixel8, kFaint, "TOKENS / DAY  -  14d");
+  g_monthLbl = mkLabel(scr, 0, 166, &pixel8, kFaint, "");
+
+  g_chart = lv_chart_create(scr);
+  lv_obj_set_pos(g_chart, 10, 180);
+  lv_obj_set_size(g_chart, 300, 32);
+  lv_chart_set_type(g_chart, LV_CHART_TYPE_BAR);
+  lv_chart_set_point_count(g_chart, 14);
+  lv_obj_set_style_bg_opa(g_chart, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(g_chart, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(g_chart, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_column(g_chart, 3, LV_PART_MAIN);
+  lv_obj_set_style_radius(g_chart, 0, LV_PART_ITEMS);
+  lv_chart_set_div_line_count(g_chart, 0, 0);
+  g_series = lv_chart_add_series(g_chart, lv_color_hex(kHero), LV_CHART_AXIS_PRIMARY_Y);
+
+  g_footL = mkLabel(scr, 10, 220, &pixel8, kDim, "");
+  g_footR = mkLabel(scr, 0, 220, &pixel8, kFaint, "connecting");
+  alignRight(g_footR, 312, 220);
+}
+
+static void updateGraph() {
+  if (!g_series || g_dailyN == 0) return;
+  long maxV = 1;
+  for (int i = 0; i < g_dailyN; i++) if (g_daily[i] > maxV) maxV = g_daily[i];
+  lv_chart_set_point_count(g_chart, g_dailyN);
+  lv_chart_set_range(g_chart, LV_CHART_AXIS_PRIMARY_Y, 0, (lv_coord_t)maxV);
+  for (int i = 0; i < g_dailyN; i++)
+    lv_chart_set_next_value(g_chart, g_series, (lv_coord_t)g_daily[i]);
+  lv_chart_refresh(g_chart);
+}
+
+// Pull tokens for a named provider out of a by_provider array.
+static long long providerTokens(JsonArrayConst arr, const char* name) {
+  for (JsonObjectConst p : arr)
+    if (strcmp(p["provider"] | "", name) == 0) return p["tokens"] | 0LL;
+  return 0;
+}
+static void fillTf(JsonObjectConst tf, TfData& d) {
+  d.tokens = tf["tokens"] | 0LL;
+  d.cost = tf["cost_usd"] | 0.0;
+  d.days = tf["days"] | 0;
+  JsonArrayConst bp = tf["by_provider"];
+  d.claude = providerTokens(bp, "claude-code");
+  d.codex = providerTokens(bp, "codex");
+  d.gemini = providerTokens(bp, "gemini");
+}
+
+// Fetch /usage/summary and refresh state. Returns true on a good parse.
+static bool poll() {
+  if (WiFi.status() != WL_CONNECTED) { snprintf(g_sync, sizeof(g_sync), "no wifi"); return false; }
+  HTTPClient http;
+  http.setTimeout(5000);
+  http.begin(String(API_BASE_URL) + "/usage/summary");
+  http.addHeader("Authorization", String("Bearer ") + API_BEARER_TOKEN);
+  int code = http.GET();
+  if (code != 200) { snprintf(g_sync, sizeof(g_sync), "err %d", code); http.end(); return false; }
+  String body = http.getString();
+  http.end();
+
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) { snprintf(g_sync, sizeof(g_sync), "parse"); return false; }
+  JsonObjectConst tfs = doc["timeframes"];
+  fillTf(tfs["today"], g_data[0]);
+  fillTf(tfs["d30"], g_data[1]);
+  fillTf(tfs["all"], g_data[2]);
+
+  JsonArrayConst daily = doc["daily"];
+  g_dailyN = 0;
+  for (JsonObjectConst pt : daily) { if (g_dailyN >= 14) break; g_daily[g_dailyN++] = pt["tokens"] | 0L; }
+
+  char mtok[16];
+  humanize((long long)(doc["month"]["tokens"] | 0LL), mtok, sizeof(mtok));
+  snprintf(g_month, sizeof(g_month), "MONTH %s", mtok);
+
+  if (!doc["last_used"].isNull()) {
+    char age[12];
+    fmtAge((long)(doc["last_used"]["age_seconds"] | 0L), age, sizeof(age));
+    const char* p = doc["last_used"]["provider"] | "";
+    snprintf(g_lastUsed, sizeof(g_lastUsed), "LAST USED %s %s", p, age);
+  } else if (!doc["active_machine"].isNull()) {
+    snprintf(g_lastUsed, sizeof(g_lastUsed), "ACTIVE %s", doc["active_machine"] | "");
+  } else {
+    g_lastUsed[0] = '\0';
+  }
+
+  if (!doc["last_sync"].isNull()) {
+    char age[12];
+    fmtAge((long)(doc["last_sync"]["age_seconds"] | 0L), age, sizeof(age));
+    snprintf(g_sync, sizeof(g_sync), "SYNC %s", age);
+  } else {
+    snprintf(g_sync, sizeof(g_sync), "SYNC --");
+  }
+
+  g_haveData = true;
+  updateGraph();
+  return true;
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(TOUCH_IRQ, INPUT);
   tft.begin();
   tft.setRotation(1);
   lv_init();
@@ -70,218 +317,34 @@ static void display_init() {
   disp_drv.draw_buf = &draw_buf;
   lv_disp_drv_register(&disp_drv);
 
-  lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), LV_PART_MAIN);
-  g_statusChip = mkLabel(8, 6, &lv_font_montserrat_14, lv_color_hex(0x888888));
-  g_hero = mkLabel(8, 28, &lv_font_montserrat_28, lv_color_white());
-  g_cost = mkLabel(8, 74, &lv_font_montserrat_14, lv_color_hex(0xBBBBBB));
-  g_providers = mkLabel(8, 100, &lv_font_montserrat_14, lv_color_hex(0xBBBBBB));
-  g_machines = mkLabel(8, 130, &lv_font_montserrat_14, lv_color_hex(0xBBBBBB));
-  g_footer = mkLabel(8, 210, &lv_font_montserrat_14, lv_color_hex(0x888888));
+  buildScreen();
+  renderActive();
 
-  // 1h burn sparkline (phase 4) — a thin scrolling line chart, bottom strip.
-  g_spark = lv_chart_create(lv_scr_act());
-  lv_obj_set_size(g_spark, 180, 36);
-  lv_obj_set_pos(g_spark, 132, 168);
-  lv_chart_set_type(g_spark, LV_CHART_TYPE_LINE);
-  lv_chart_set_point_count(g_spark, 60);
-  lv_obj_set_style_bg_opa(g_spark, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(g_spark, 0, LV_PART_MAIN);
-  lv_obj_set_style_size(g_spark, 0, LV_PART_INDICATOR); // no point markers
-  g_sparkSeries = lv_chart_add_series(g_spark, lv_color_hex(0x44AAFF), LV_CHART_AXIS_PRIMARY_Y);
-
-  lv_label_set_text(g_statusChip, "... connecting");
-}
-
-// Group digits with thin spaces so the hero number reads across the room.
-static void formatTokens(long long tokens, char* out, size_t outLen) {
-  char digits[24];
-  snprintf(digits, sizeof(digits), "%lld", tokens);
-  int len = static_cast<int>(strlen(digits));
-  size_t o = 0;
-  for (int i = 0; i < len && o + 2 < outLen; i++) {
-    if (i > 0 && (len - i) % 3 == 0) out[o++] = ' ';
-    out[o++] = digits[i];
-  }
-  out[o] = '\0';
-}
-
-// The non-color signal per panel state (icon/word prefix), and the hero text color.
-static void renderStateChrome(usage::PanelKind kind) {
-  struct { const char* chip; uint32_t hero; } v;
-  switch (kind) {
-    case usage::PanelKind::Connecting:   v = {"... connecting", 0x888888}; break;
-    case usage::PanelKind::Empty:        v = {"no data yet",    0x888888}; break;
-    case usage::PanelKind::Live:         v = {"# live",          0xFFFFFF}; break;
-    case usage::PanelKind::Partial:      v = {"~ partial",       0xFFFFFF}; break;
-    case usage::PanelKind::AllStale:     v = {"o STALE",         0x777755}; break;
-    case usage::PanelKind::Disconnected: v = {"! OFFLINE",       0x555555}; break;
-  }
-  lv_label_set_text(g_statusChip, v.chip);
-  lv_obj_set_style_text_color(g_hero, lv_color_hex(v.hero), LV_PART_MAIN);
-}
-
-// Render the detailed tiles from the (already validated) summary body. Rendering
-// only — no decisions. Bounded reads; missing fields render as blanks, never garbage.
-// Update the hero label from the ticker's currently-interpolated value (phase 4).
-static void renderHeroTick() {
-  char heroText[40];
-  formatTokens(g_ticker.displayed, heroText, sizeof(heroText));
-  lv_label_set_text(g_hero, heroText);
-}
-
-static void renderTiles(const char* body, size_t len) {
-  JsonDocument doc;
-  if (deserializeJson(doc, body, len)) return;  // core already validated; be safe
-
-  // Hero is driven by the ticker (renderHeroTick), not set directly here.
-
-  // Cost instrument (phase 3): priced spend, EOD/month projection, budget. The "~"
-  // marks an estimate that is partial (unpriced models present), so it reads honestly.
-  JsonObject cost = doc["cost"].as<JsonObject>();
-  char costText[80];
-  if (cost.isNull()) {
-    snprintf(costText, sizeof(costText), "$%.2f", doc["totals"]["cost_usd"].as<double>());
-  } else {
-    const char* est = cost["partial"].as<bool>() ? "~" : "";
-    double eod = cost["projection"]["eod_usd"].as<double>();
-    double mtd = cost["projection"]["month_usd"].as<double>();
-    char budget[24] = "";
-    if (!cost["budget"].isNull()) {
-      snprintf(budget, sizeof(budget), "  %.0f%%%s", cost["budget"]["used_pct"].as<double>(),
-               cost["budget"]["over_budget"].as<bool>() ? " OVER" : "");
-    }
-    snprintf(costText, sizeof(costText), "%s$%.2f  eod $%.0f  mo $%.0f%s",
-             est, cost["priced_usd"].as<double>(), eod, mtd, budget);
-  }
-  lv_label_set_text(g_cost, costText);
-  // Over-budget tints the cost line so it's a glanceable alert (with the OVER word too).
-  lv_obj_set_style_text_color(g_cost,
-      (!cost.isNull() && !cost["budget"].isNull() && cost["budget"]["over_budget"].as<bool>())
-          ? lv_color_hex(0xCC4444) : lv_color_hex(0xBBBBBB), LV_PART_MAIN);
-
-  // Providers (CC vs Codex).
-  char prov[64] = "";
-  for (JsonObject p : doc["by_provider"].as<JsonArray>()) {
-    char one[32];
-    snprintf(one, sizeof(one), "%.6s %lld  ", p["provider"].as<const char*>(), p["tokens"].as<long long>());
-    strncat(prov, one, sizeof(prov) - strlen(prov) - 1);
-  }
-  lv_label_set_text(g_providers, prov);
-
-  // Machines, with an explicit age and a STALE marker (non-color signal).
-  char mach[96] = "";
-  for (JsonObject m : doc["by_machine"].as<JsonArray>()) {
-    char one[48];
-    snprintf(one, sizeof(one), "%.6s %lds%s\n", m["machine"].as<const char*>(),
-             m["age_seconds"].as<long>(), m["stale"].as<bool>() ? " STALE" : "");
-    strncat(mach, one, sizeof(mach) - strlen(mach) - 1);
-  }
-  lv_label_set_text(g_machines, mach);
-
-  // Footer: session burn · month-to-date · last-sync age.
-  char footer[96];
-  long sessionTok = doc["session"].isNull() ? 0 : doc["session"]["tokens"].as<long>();
-  long monthTok = doc["month"]["tokens"].as<long>();
-  long syncAge = doc["last_sync"].isNull() ? -1 : doc["last_sync"]["age_seconds"].as<long>();
-  snprintf(footer, sizeof(footer), "sess %ld  mtd %ld  sync %lds", sessionTok, monthTok, syncAge);
-  lv_label_set_text(g_footer, footer);
-
-  // Sparkline (phase 4): the 1h burn series scrolls in. Empty buckets are 0 → flat.
-  JsonArray buckets = doc["sparkline_1h"]["buckets"].as<JsonArray>();
-  if (!buckets.isNull() && g_sparkSeries != nullptr) {
-    int i = 0;
-    for (JsonVariant v : buckets) {
-      if (i >= 60) break;
-      lv_chart_set_next_value(g_spark, g_sparkSeries, static_cast<lv_coord_t>(v.as<long>()));
-      i++;
-    }
-    lv_chart_refresh(g_spark);
-  }
-
-  // Active machine (phase 4): remember it so its tile can glow.
-  const char* active = doc["active_machine"].as<const char*>();
-  snprintf(g_activeMachine, sizeof(g_activeMachine), "%s", active ? active : "");
-}
-
-static void wifi_connect() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
-static usage::DisplayState g_state;
-static char g_lastBody[usage::kMaxBodyBytes];
-static size_t g_lastLen = 0;
-
-static void poll_once() {
-  if (WiFi.status() != WL_CONNECTED) {
-    g_state = usage::applyFetchResult(g_state, {usage::FetchKind::NetworkError, 0, nullptr, 0});
-    renderStateChrome(usage::classifyPanel(g_state));
-    return;
-  }
-
-  HTTPClient http;
-  http.setTimeout(4000);
-  http.begin(String(API_BASE_URL) + "/usage/summary");
-  http.addHeader("Authorization", String("Bearer ") + API_BEARER_TOKEN);
-
-  int status = http.GET();
-  if (status <= 0) {
-    g_state = usage::applyFetchResult(g_state, {usage::FetchKind::NetworkError, 0, nullptr, 0});
-  } else if (status < 200 || status >= 300) {
-    g_state = usage::applyFetchResult(g_state, {usage::FetchKind::HttpError, status, nullptr, 0});
-  } else {
-    String body = http.getString();
-    usage::FetchResult r{usage::FetchKind::Ok, status, body.c_str(), static_cast<size_t>(body.length())};
-    usage::DisplayState next = usage::applyFetchResult(g_state, r);
-    if (next.kind == usage::DisplayKind::Live && body.length() < sizeof(g_lastBody)) {
-      // Keep the last good body so the tiles can re-render its detail fields.
-      memcpy(g_lastBody, body.c_str(), body.length());
-      g_lastLen = body.length();
-    }
-    g_state = next;
-  }
-  http.end();
-
-  const usage::PanelKind kind = usage::classifyPanel(g_state);
-  renderStateChrome(kind);
-  if (g_state.hasValue) {
-    // Feed the freshly confirmed total to the ticker (bounded ease / reset).
-    usage::tickerConfirm(g_ticker, g_state.tokens);
-    if (g_lastLen > 0) renderTiles(g_lastBody, g_lastLen);
-  }
-}
-
-void setup() {
-  Serial.begin(115200);
-  display_init();
-  wifi_connect();
-}
-
 void loop() {
-  static uint32_t last_poll = 0;
-  static uint32_t last_tick = 0;
   lv_timer_handler();
 
-  uint32_t nowMs = millis();
-  if (nowMs - last_poll >= POLL_INTERVAL_MS || last_poll == 0) {
-    last_poll = nowMs;
-    poll_once();
+  static uint32_t lastPoll = 0;
+  uint32_t now = millis();
+  if (lastPoll == 0 || now - lastPoll >= POLL_INTERVAL_MS) {
+    lastPoll = now;
+    poll();
+    renderActive();
   }
 
-  // phase 4: ease the hero toward the confirmed total a few times a second between
-  // polls — the motion budget keeps it to the hero plus a slow glow, nothing more.
-  if (nowMs - last_tick >= 50) {
-    last_tick = nowMs;
-    // Close ~12% of the remaining gap each step → smooth ease that settles by next poll.
-    usage::tickerStep(g_ticker, 0.12);
-    renderHeroTick();
-    // Subtle active-machine glow: a slow opacity pulse on the hero when something burns.
-    if (g_activeMachine[0] != '\0') {
-      uint8_t pulse = 200 + static_cast<uint8_t>(55.0 * (0.5 + 0.5 * sinf(nowMs / 600.0f)));
-      lv_obj_set_style_text_opa(g_hero, pulse, LV_PART_MAIN);
-    } else {
-      lv_obj_set_style_text_opa(g_hero, LV_OPA_COVER, LV_PART_MAIN);
-    }
+  // Tap-to-cycle the timeframe (PENIRQ falling edge, debounced).
+  static bool wasTouched = false;
+  static uint32_t lastTap = 0;
+  bool touched = (digitalRead(TOUCH_IRQ) == LOW);
+  if (touched && !wasTouched && (now - lastTap) > 250) {
+    lastTap = now;
+    g_tf = (g_tf + 1) % 3;
+    renderActive();
   }
+  wasTouched = touched;
+
   delay(5);
 }

@@ -9,6 +9,8 @@ import type {
   CostInstrument,
   MachineBreakdown,
   ProviderBreakdown,
+  TimeframeStat,
+  Timeframes,
   UsageSummary,
 } from "@usage/shared";
 import type { Db } from "./db.ts";
@@ -73,6 +75,7 @@ export function buildSummary(db: Db, nowMs: number, config: SummaryConfig): Usag
   const month = reckoningMonth(nowMs, config.timezone);
   const monthRollup = db.monthToDate(month);
 
+  const lu = db.lastUsed();
   return {
     v: 2,
     generated_at: new Date(nowMs).toISOString(),
@@ -87,6 +90,38 @@ export function buildSummary(db: Db, nowMs: number, config: SummaryConfig): Usag
     month: { month, tokens: monthRollup.tokens, cost_usd: monthRollup.cost_usd },
     cost: buildCostInstrument(db, nowMs, config, month),
     ...buildLive(db, nowMs),
+    timeframes: buildTimeframes(db, nowMs, config.timezone),
+    daily: db.dailySeries(14),
+    last_used:
+      lu === null
+        ? null
+        : { provider: lu.provider, age_seconds: Math.max(0, Math.round((nowMs - lu.activity) / 1000)) },
+  };
+}
+
+/** Roll up one timeframe (per-provider split + totals + active-day count) from `since`. */
+function buildTimeframe(db: Db, since: string): TimeframeStat {
+  const byProvider: ProviderBreakdown[] = db.byProviderSince(since).map((r) => ({
+    provider: r.key,
+    tokens: r.tokens,
+    cost_usd: r.cost_usd,
+  }));
+  return {
+    tokens: byProvider.reduce((a, p) => a + p.tokens, 0),
+    cost_usd: byProvider.reduce((a, p) => a + p.cost_usd, 0),
+    days: db.daysSince(since),
+    by_provider: byProvider,
+  };
+}
+
+/** The three timeframe tabs: today (reckoning day), last 30 days, all-time. */
+function buildTimeframes(db: Db, nowMs: number, timezone: string): Timeframes {
+  const today = reckoningDay(nowMs, timezone);
+  const cutoff30 = reckoningDay(nowMs - 29 * 86_400_000, timezone);
+  return {
+    today: buildTimeframe(db, today),
+    d30: buildTimeframe(db, cutoff30),
+    all: buildTimeframe(db, ""),
   };
 }
 

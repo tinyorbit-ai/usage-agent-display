@@ -307,3 +307,25 @@ forge-harden-design (POLISH). Skipped: -dx (not a product / single-tenant non-go
 None. Codex's findings were entirely additive to the persona passes; all twelve were
 objective and have been applied. The two highest-value catches of the whole pass
 (canonical report type, granular-from-phase-1 schema) came from the reviewer.
+
+---
+
+## Post-release phases (added after the 5-phase plan locked)
+
+The original plan (1–5) shipped and was retro'd. These phases were added as the project
+kept evolving — same branch/gate/squash discipline.
+
+### Phase 6 — ccusage v20 multi-agent + first-light deploy
+**Branch:** `phase/6-ccusage-v20-multiagent`
+**Goal:** Track ccusage's multi-agent rework and bring the system up on real hardware.
+**Gate (met):** pin ccusage 16.2.4→20.0.6; normalizer reads `period` buckets + derives
+provider per-breakdown from the model name; +6 normalize tests; full gate green; first
+light confirmed on the CYD (real hero, all three providers). See [[build-log]].
+
+### Phase 7 — Panel visual polish + working timeframe tabs (live)
+**Branch:** `phase/7-panel-visual-polish`
+**Goal:** Make the panel look designed and add tappable timeframe tabs on real data.
+**Gate (met):** locked "C2 · Daily Rate" design (1bpp Silkscreen pixel fonts, size
+hierarchy, color-coded agents, tokens/day graph); tap-to-cycle tabs (PENIRQ); additive
+`/usage/summary` `timeframes`/`daily`/`last_used` with +4 tests; full gate green; verified
+live end-to-end on the CYD. ADR [[decisions/0012-panel-visual-system-v2]]. See [[build-log]].
