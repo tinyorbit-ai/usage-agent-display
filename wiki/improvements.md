@@ -3,6 +3,21 @@
 Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
 "deferred X for Y" is a positive signal, not an apology.
 
+## Retro action items (2026-06-06, phase 10 + agent filter)
+
+- **Add "renders the empty/boot state correctly" to the firmware build checklist.** The
+  phase-12 LVGL ÷0 boot loop was a pure empty-state bug (no data before the first poll →
+  `point_count==1`). The first thing the device draws is *no data*; that path needs the same
+  care as the live path. See [[notes/2026-06-06-chart-point-count-divide-by-zero]].
+- **On-board touch calibration is a manual tuning step.** `kTouchCal` (touch_config.h) ships
+  as best-guess single-unit constants; correct direct-tap requires tapping the corners and
+  reading the serial `touch raw=…→screen=…` print to set the four extremes. A one-time
+  serial-driven calibration helper would remove the manual step *if* this ever runs on a
+  second board — deferred (single device doesn't earn it, per [[decisions/0015-touch-input-stack]]).
+- **Physical tap verification is human-in-the-loop.** The routing/calibration/debounce logic
+  is host-tested, but "the tap I made hit the chip I aimed at" can only be confirmed by a
+  finger on glass — the irreducible manual half of the touch hardware gate.
+
 ## Phase 12
 
 - **The agent control is fixed at ALL + the three branded agents (claude-code / codex /

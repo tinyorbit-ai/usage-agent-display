@@ -3,6 +3,65 @@
 Part of [[index]]. Running synthesis appended by `forge-retro`. Newest on top. One
 entry per retro: what shipped, recurring patterns, what went well, what to improve.
 
+## 2026-06-06 — Retro (phase 10 + agent-filter feature, phases 11–12)
+
+**Lead finding — the retro loop closed, and exposed the next limit.** The previous
+retro's #1 action item was "make the host-testable core ([[decisions/0007-firmware-host-testable-core]])
+a **gate check**, not a prose promise." This arc *did it*: phase 11 added `check:fwcore`,
+a static tripwire that fails the build if routing leaves the core or `main.cpp` redefines
+it. It paid for itself one phase later — phase 12 moved the **entire** live `/usage/summary`
+parse back into the host core specifically because the discipline now had teeth. A flagged
+weakness became an enforced invariant in one cycle. But the same phase exposed the *next*
+limit: phase 12 had **three green host suites, a clean device build, and a photo-verified
+HTML mock, and still boot-looped on first flash** (LVGL bar chart ÷0 when `point_count==1`
+at boot — [[notes/2026-06-06-chart-point-count-divide-by-zero]]). The action this time:
+**the on-device hardware gate is load-bearing, not ceremony** — a firmware phase is not done
+when the suite is green, and the empty/boot render state (before the first fetch) is a
+first-class test case, because it's the first thing the device draws.
+
+**Shipped.** This arc added the two-axis **agent filter** — the last planned feature. Phase
+10 (backend) split the daily token series per provider (`daily_by_provider`), reindexed onto
+the combined axis and zero-filled, built from the same base query so the split sums to the
+combined series **by construction**. Phases 11–12 were deliberately cut as
+**touch-foundation then agent-UI** so no half-filtered state ever shipped: phase 11 replaced
+the PENIRQ any-tap-cycle with real XPT2046 coordinates (direct-tap tabs), all routing /
+calibration / pressure-gating / debounce in the host core with the tripwire above; phase 12
+turned the static `ALL AGENTS` label into a 4-segment `(timeframe × agent)` control that
+re-scopes hero + cost + graph to one provider (brand recolor + filled-pill non-color signal
++ dimmed rows), with `ALL` regression-locked to the exact pre-feature values. The headline
+under the hood: the live parse moved off `main.cpp`'s unbounded `JsonDocument` and onto the
+**bounded host-tested core** — the P7/P10 regression is now fully closed, and the cap is
+enforced at *read* time. The combined firmware is flashed and rendering live (`30D × ALL =
+7.27B`).
+
+**Recurring pattern — every high-value catch this arc was a value crossing a boundary
+uncontained.** P10: an open-string provider id used as a plain-object key (`__proto__`
+pollution). P11: a sensor's "present" pin (PENIRQ) trusted as a "valid reading" (pressure
+ignored). P12: a provider id guessed (`claude` vs the production `claude-code`), a 64-bit
+token count narrowed to a 16-bit display coord, and a body cap enforced *after* the
+allocation it was meant to prevent. This is the exact class the phases 1–5 retro named for
+the dedup store — a value entering a structural position (map key, sensor signal, display
+int, heap buffer) without being contained at the boundary. **Codex found the subtle one
+every single phase.**
+
+**What went well.** Acting on the last retro (the tripwire) instead of re-deferring it.
+The per-phase **codex adversarial pass** earned its keep three times over. The
+**mock-in-HTML → flash-the-winner** loop (ADR 0012) caught the top-bar spacing before a
+flash cycle. The host-testable core was *extended* this arc, not bypassed — the opposite of
+what phase 7 did to it.
+
+**What to improve.** (1) Add "renders the empty/boot state correctly" to the firmware
+build checklist — the ÷0 was a pure empty-state bug. (2) Calibration constants
+(`kTouchCal`) are still best-guess defaults needing an at-board tuning pass; if this ever
+runs on a second board, a one-time serial-calibration helper would remove the manual step.
+(3) Physical tap verification is a genuine human-in-the-loop gap — the hardware half of the
+touch gates can't be automated, only the routing logic underneath it.
+
+**Open threads.** Physical tap verification + `kTouchCal` tuning are the one remaining
+at-the-board step (live render already confirmed). Fixed-3-chips agent control is a
+documented limitation ([[improvements]]). With the agent filter shipped, the planned
+feature set is complete.
+
 ## 2026-06-06 — Retro (phases 6–9, post-release arc + two chores)
 
 **Lead finding.** The discipline that carried phases 1–4 — a **host-testable firmware
