@@ -57,7 +57,7 @@ Single-file daemons (Bun runtime embedded). One per platform — pick yours:
 The daemon reads its config from the environment and posts ccusage totals to the server:
 
 \`\`\`sh
-export USAGE_SERVER_URL="https://usage.mountaindev.uk"   # the public server URL
+export USAGE_SERVER_URL="https://usage.example.com"   # the public server URL
 export USAGE_BEARER_TOKEN="<the shared secret from Doppler>"
 export USAGE_MACHINE_ID="laptop"                         # unique per machine
 export USAGE_INTERVAL_SECONDS=30

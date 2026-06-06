@@ -83,3 +83,9 @@ and asserts it appears in `by_provider[]` and the combined total with zero core 
 - `/ingest` strictly **validates and rejects** malformed input (never clamps); all DB
   access goes through prepared statements (enforced by `scripts/check-no-raw-sql.ts`).
 - `bun run scan:secrets` runs `gitleaks` (if installed) or a focused fallback scan.
+
+## License
+
+[MIT](LICENSE). The bundled **Silkscreen** font (`firmware/vendor/fonts/`, and the
+generated `firmware/src/fonts/pixel*.c`) is © The Silkscreen Project Authors under the
+SIL Open Font License 1.1 — see `firmware/vendor/fonts/OFL.txt`.

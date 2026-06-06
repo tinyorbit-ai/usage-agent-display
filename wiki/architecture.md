@@ -88,6 +88,23 @@ fields without breaking older firmware:
 }
 ```
 
+## Updates since phase 5 (kept honest)
+
+- **Contract grew (still additive, `v` unchanged).** `/usage/summary` now also carries
+  `timeframes` (today / d30 / all — tokens + cost + active-day count + per-provider),
+  a 14-point `daily` series for the bar graph, and `last_used` (phase 7). A new
+  **unauthenticated `GET /health`** liveness route sits in front of the bearer gate
+  (phase 8); every data route still requires the token.
+- **Multi-agent for real.** ccusage v20 reports claude + codex + gemini natively; the
+  daemon derives each row's provider from the model name (phase 6,
+  [[notes/2026-06-06-ccusage-multi-agent]]).
+- **Panel UI v2.** The CYD renders the "C2" design — pixel font, timeframe tabs
+  (tap-to-cycle via PENIRQ), tokens/day graph (phase 7, [[decisions/0012-panel-visual-system-v2]]).
+- **Distribution & deploy.** Daemon ships as a single `bun --compile` binary; the server
+  deploys on a self-host PM2 + Doppler + Cloudflare-Tunnel VM at a bearer-gated public
+  URL; the CYD speaks HTTP on-LAN or HTTPS to the public URL (phase 8–9,
+  [[decisions/0013-distribution-and-deployment]]).
+
 ## Decisions index
 
 - [[decisions/0001-shape-daemon-api-cyd]] — component shape & polling
@@ -95,3 +112,8 @@ fields without breaking older firmware:
 - [[decisions/0003-daemon-auth-bearer]] — shared bearer token
 - [[decisions/0004-ingest-dedup-model]] — dedup key & provider-agnostic schema
 - [[decisions/0005-cyd-board-and-toolchain]] — ESP32-2432S028R + PlatformIO/LVGL
+- [[decisions/0006-cost-attribution-grain]] · [[decisions/0007-firmware-host-testable-core]]
+  · [[decisions/0008-display-design-system]] · [[decisions/0009-pricing-source-and-projection]]
+  · [[decisions/0010-live-transport]] · [[decisions/0011-retention-policy]]
+- [[decisions/0012-panel-visual-system-v2]] — pixel font + timeframe tabs (phase 7)
+- [[decisions/0013-distribution-and-deployment]] — compiled daemon + public deploy (phase 8)

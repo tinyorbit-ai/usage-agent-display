@@ -3,6 +3,28 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 9 — Firmware HTTPS + open-source prep
+**Branch:** `phase/9-https-and-oss-prep` → squashed to `main`
+
+- **Firmware speaks HTTPS.** `poll()` now scheme-detects `API_BASE_URL`: `https://` →
+  `WiFiClientSecure` (so the CYD can hit the public Cloudflare-Tunnel URL), `http://` →
+  plain (LAN). TLS verification: pins `API_ROOT_CA` if `config.h` defines it, else
+  `setInsecure()`. Builds at 87% flash (mbedTLS already in the WiFi stack); LAN HTTP
+  behavior unchanged. Cloudflare manages the public cert — `config.h.example` documents
+  pinning its public root (ISRG Root X1 / GTS Root R1) for verified TLS, set-and-forget.
+- **Open-sourced safely.** Audited every tracked file: **no** token, WiFi creds, or
+  private URL committed (`.env`/`config.h` are gitignored). Redacted the real domain
+  (→ `usage.example.com`), home LAN IP, personal git org (→ `YOUR_ORG`), and the
+  private deploy-system name. Added **MIT `LICENSE`** + README license note;
+  bundled the Silkscreen **OFL** license/NOTICE for the embedded font. Deleted the
+  disposable HTML mockups.
+- **Architecture doc brought current** — `wiki/architecture.md` now reflects the v7
+  contract additions (`timeframes`/`daily`/`last_used`), `/health`, and the deploy topology.
+- **Gate:** `bun run gate` — full suite green; firmware builds + flashes clean. Leak
+  re-scan: clean (domain, org, email, system name, home IP, MAC, tunnel id all absent).
+- **Deferred ([[improvements]]):** the Mozilla CA-bundle (`setCACertBundle`) zero-maintenance
+  TLS option (needs an embed step); a phase 6–9 retro synthesis.
+
 ## Phase 8 — Distribute the daemon + deploy the server (public, bearer-gated)
 **Branch:** `phase/8-distribute-and-deploy` → squashed to `main`
 
@@ -11,10 +33,10 @@ merge. Newest on top. Appended by `forge-ship`.
   macOS arm64 (57 MB) / x64 (63 MB) / linux x64 (99 MB) → `dist/` with a run README.
   Config stays env-driven; ccusage is spawned, not bundled (host needs `bunx`/`npx` or
   `USAGE_CCUSAGE_CMD`). Verified: the binary boots, logs config, exits clean on SIGTERM.
-- **Server deploys via vibe-realm** (the owner's PM2 + Doppler + Cloudflare-Tunnel VM
+- **Server deploys via the self-host deploy system** (the owner's PM2 + Doppler + Cloudflare-Tunnel VM
   system). Added `packages/server/ecosystem.config.js` (app `usage`, `interpreter: bun`,
   Doppler `envVars` incl. `USAGE_BEARER_TOKEN` ← `USAGE_AGENT_BEARER_TOKEN`,
-  `publicInternet.enabled`). The repo is registered in vibe-realm `repos.json`
+  `publicInternet.enabled`). The repo is registered in the deploy system's `repos.json`
   (`appsDir: "packages"`; owner commits there). Public URL → `https://usage.<baseDomain>`.
 - **`GET /health`** — new unauthenticated liveness route (no data) in front of the bearer
   gate, for the hub/tunnel health check. Everything else stays bearer-protected.
@@ -74,7 +96,7 @@ merge. Newest on top. Appended by `forge-ship`.
   seam. The drift was exactly the kind [[decisions/0002-ccusage-invocation]] anticipated
   (renamed fields → bump the pin + adjust one parser, not a rewrite).
 - **First light on real hardware.** Backend brought up on this machine
-  (server + daemon, `192.168.68.211:8080`); the CYD flashed, joined WiFi (`.184`), polled,
+  (server + daemon, the LAN server); the CYD flashed, joined WiFi, polled,
   and **painted the live token total** — daemon→server→board proven end to end with a
   real number on the desk (504/496 rows, 0 skipped, hero 3.36 B, CC/codex/gemini split).
   Flash needed `upload_speed 921600 → 460800` (the 921600 default threw "Invalid head of

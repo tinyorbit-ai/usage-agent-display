@@ -10,11 +10,38 @@
 #define WIFI_PASSWORD "your-password"
 
 // --- Central API ---
-// The base URL of the server (no trailing slash), e.g. http://192.168.1.50:8080
+// The base URL of the server (no trailing slash). Either:
+//   - a LAN address over HTTP:    http://192.168.1.50:8080
+//   - the public server over HTTPS: https://usage.example.com   (TLS auto-enabled)
 #define API_BASE_URL "http://192.168.1.50:8080"
 
 // The shared bearer token — must match USAGE_BEARER_TOKEN on the server/daemons.
 #define API_BEARER_TOKEN "replace-with-shared-secret"
 
-// Poll cadence in milliseconds.
+// Poll cadence in milliseconds. (Consider 10000+ for HTTPS — each poll does a TLS handshake.)
 #define POLL_INTERVAL_MS 5000
+
+// --- TLS (only used when API_BASE_URL is https, e.g. behind Cloudflare Tunnel) ---
+// Cloudflare terminates TLS at its edge with a PUBLICLY-TRUSTED cert it manages — you
+// don't supply a cert. The ESP32 only needs to VERIFY it. Two options:
+//
+//   (a) Leave API_ROOT_CA undefined  -> setInsecure(): encrypted but unverified. Fine on
+//       a trusted LAN / home setup. Over the open internet a MITM could capture the
+//       bearer token, so prefer (b) there.
+//
+//   (b) Pin the public ROOT CA Cloudflare chains to (stable for years — no per-renewal
+//       work). Cloudflare Universal SSL currently uses Let's Encrypt (ISRG Root X1) or
+//       Google Trust Services (GTS Root R1). Paste BOTH roots below (mbedTLS accepts a
+//       concatenated bundle) so either chain validates. Get the PEMs from:
+//         - ISRG Root X1: https://letsencrypt.org/certs/isrgrootx1.pem
+//         - GTS Root R1:  https://pki.goog/repo/certs/gtsr1.pem
+//       Confirm which your host uses:  openssl s_client -connect usage.example.com:443
+//
+// #define API_ROOT_CA R"EOF(
+// -----BEGIN CERTIFICATE-----
+// ...ISRG Root X1 PEM...
+// -----END CERTIFICATE-----
+// -----BEGIN CERTIFICATE-----
+// ...GTS Root R1 PEM...
+// -----END CERTIFICATE-----
+// )EOF"

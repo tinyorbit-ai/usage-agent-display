@@ -30,7 +30,7 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 - [[decisions/0010-live-transport]] — fast poll + bounded firmware interpolation, not SSE (phase 4)
 - [[decisions/0011-retention-policy]] — prune snapshots by last-write age, server-self-pruned (phase 5)
 - [[decisions/0012-panel-visual-system-v2]] — pixel font + tap-to-cycle timeframe tabs + per-timeframe contract (phase 7)
-- [[decisions/0013-distribution-and-deployment]] — compiled daemon binary + vibe-realm server deploy + bearer-gated public URL (phase 8)
+- [[decisions/0013-distribution-and-deployment]] — compiled daemon binary + self-host server deploy + bearer-gated public URL (phase 8)
 
 ### Incident notes
 

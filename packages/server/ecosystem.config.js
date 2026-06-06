@@ -1,9 +1,9 @@
-// vibe-realm deploy config (phase 8). Discovered by the deployment system when this
+// Self-host deploy config (PM2 + Doppler + Cloudflare Tunnel, phase 8). Discovered by the deployment system when this
 // repo is listed in its repos.json with appsDir "packages". PM2 runs the server with
 // Bun directly; env is injected from Doppler (only the vars declared below).
 //
 // publicInternet → a Cloudflare Tunnel hostname `usage.<baseDomain>` (e.g.
-// https://usage.mountaindev.uk), reachable from any machine. Auth is the shared bearer
+// https://usage.example.com), reachable from any machine. Auth is the shared bearer
 // token (USAGE_BEARER_TOKEN) on every request — the public URL is safe because the read
 // path is bearer-protected too (ADR 0003). `/health` is the only unauthenticated route.
 module.exports = {

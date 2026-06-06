@@ -9,6 +9,7 @@
 // calibration needed. Crisp 1bpp Silkscreen pixel fonts (src/fonts/pixel*.c).
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <lvgl.h>
@@ -250,12 +251,32 @@ static void fillTf(JsonObjectConst tf, TfData& d) {
   d.gemini = providerTokens(bp, "gemini");
 }
 
-// Fetch /usage/summary and refresh state. Returns true on a good parse.
+// Fetch /usage/summary and refresh state. Returns true on a good parse. Speaks HTTPS
+// when API_BASE_URL is an https:// URL (e.g. the public Cloudflare-Tunnel host), plain
+// HTTP otherwise (e.g. a LAN address). For TLS: pins API_ROOT_CA if config.h defines it,
+// else falls back to setInsecure() (encrypted but unauthenticated server — fine on a
+// trusted LAN, but define API_ROOT_CA to protect the bearer token over the open internet).
 static bool poll() {
   if (WiFi.status() != WL_CONNECTED) { snprintf(g_sync, sizeof(g_sync), "no wifi"); return false; }
+  const bool tls = strncmp(API_BASE_URL, "https", 5) == 0;
   HTTPClient http;
-  http.setTimeout(5000);
-  http.begin(String(API_BASE_URL) + "/usage/summary");
+  http.setTimeout(8000);
+  const String url = String(API_BASE_URL) + "/usage/summary";
+  if (tls) {
+    static WiFiClientSecure secure;
+    static bool inited = false;
+    if (!inited) {
+#ifdef API_ROOT_CA
+      secure.setCACert(API_ROOT_CA);
+#else
+      secure.setInsecure();
+#endif
+      inited = true;
+    }
+    http.begin(secure, url);
+  } else {
+    http.begin(url);
+  }
   http.addHeader("Authorization", String("Bearer ") + API_BEARER_TOKEN);
   int code = http.GET();
   if (code != 200) { snprintf(g_sync, sizeof(g_sync), "err %d", code); http.end(); return false; }

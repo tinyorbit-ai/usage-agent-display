@@ -46,20 +46,22 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
 
 ## Phase 8
 
-- **Firmware can't reach the public HTTPS URL yet.** The CYD does plain HTTP to a LAN
-  address. The public server is `https://usage.<baseDomain>` (TLS) — the ESP32 needs
-  `WiFiClientSecure` (cert/SNI, more flash + a root CA) to hit it. On the home LAN the
-  panel can keep using the VM's local/tailscale address over HTTP; remote HTTPS is a
-  follow-up ([[decisions/0013-distribution-and-deployment]]).
-- **The GitHub repo must be pushed (private) for the VM to clone it.** vibe-realm
-  `repos.json` points at `git@github.com:matteo-hertel/usage-agent-display.git`; create +
+- **✅ RESOLVED (phase 9) — firmware speaks HTTPS.** `poll()` scheme-detects
+  `API_BASE_URL` and uses `WiFiClientSecure` for `https://`. Remaining nicety: TLS
+  verification defaults to `setInsecure()` (encrypted but unauthenticated — a MITM could
+  capture the bearer token over the open internet). Pin Cloudflare's public root
+  (ISRG Root X1 / GTS Root R1) in `config.h` `API_ROOT_CA` to fix (see
+  `config.h.example`). Zero-maintenance alternative: embed the Mozilla CA bundle and use
+  `setCACertBundle()` — needs a PlatformIO embed step; deferred.
+- **The GitHub repo must be pushed (private) for the VM to clone it.** The deploy system
+  `repos.json` points at `git@github.com:YOUR_ORG/usage-agent-display.git`; create +
   push it, and ensure the VM's deploy key has read access.
 - **Doppler key must be set:** `USAGE_AGENT_BEARER_TOKEN` (the shared secret) and,
   optionally, `USAGE_AGENT_BUDGET_USD`. The daemons get the same token value.
 - **ccusage isn't bundled in the daemon binary.** It's spawned, so a target machine needs
   `bunx` (install Bun) or `npx` (`USAGE_CCUSAGE_CMD="npx -y ccusage@20.0.6"`). Bundling
   would need a stable ccusage library API, which it doesn't have ([[decisions/0002-ccusage-invocation]]).
-- **Per-app `bun install` in a workspace child.** vibe-realm root-installs the monorepo
+- **Per-app `bun install` in a workspace child.** The deploy system root-installs the monorepo
   (links `@usage/shared`) then per-app installs `packages/server` — fine in practice, but
   if a deploy ever resolves the workspace dep oddly, prefer the root install as source of truth.
 
