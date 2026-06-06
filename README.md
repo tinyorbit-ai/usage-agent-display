@@ -1,5 +1,7 @@
 # usage-agent-display
 
+![The CYD panel showing live aggregated AI-coding usage — 3.47B total tokens, $2457 spent, broken down by Claude / Codex / Gemini](docs/device.jpg)
+
 A physical desk panel (a "Cheap Yellow Display" ESP32 board) showing aggregated
 AI-coding usage across all my machines, live. A per-machine daemon reads local Claude
 Code / Codex usage via `ccusage` and POSTs normalized snapshots to a small central
