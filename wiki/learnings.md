@@ -10,6 +10,23 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-06 — Phase 11 — A sensor's "present" pin is not the same as "valid reading"
+- **Found:** (codex, high) The touch loop trusted XPT2046 `getPoint()` x/y on any
+  PENIRQ-low sample but ignored the pressure (`z`). On a noisy/low-pressure edge the chip
+  returns stale coordinates at `z≈0`, so a phantom edge could route the *previous*
+  coordinate and flip to the wrong tab. (codex also caught: hit-box geometry didn't match
+  its own doc — `{11..49}` is 39px with a 1px gap, not the documented 38px/2px-gap.)
+- **Fixed:** Folded pressure into the host-tested core: `touchGate` now takes `rawZ` and a
+  per-board `minPressure`; a sample counts as a touch only when PENIRQ asserts AND `z`
+  clears the threshold — so an invalid-pressure edge can neither route nor consume a
+  press. Added a host test (PENIRQ asserted + low z → no tap, press not consumed). Fixed
+  the hit-boxes to true 38px with 2px dead gaps and asserted both gap pixels route to None.
+- **Rule to remember:** An interrupt/"present" line (PENIRQ, DataReady, a GPIO flag) only
+  says *a* reading exists, not that it's *valid*. Gate on the value's own quality signal
+  (pressure, CRC, range) before acting, and put that gate in the host-tested core — not as
+  an untested one-liner in the I/O shell. And when a comment states a geometry (px sizes,
+  gaps), assert it: a 1px drift between doc and table is invisible until a finger finds it.
+
 ## 2026-06-06 — Phase 10 — An open string used as an object key needs a null-prototype map
 - **Found:** (codex, high) `daily_by_provider` was assembled into a plain `{}` keyed by the
   **open-string** `provider` id. An id colliding with an Object.prototype member

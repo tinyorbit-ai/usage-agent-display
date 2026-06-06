@@ -8,12 +8,13 @@
   "scripts": {
     "typecheck": "tsc -p packages/shared/tsconfig.json && tsc -p packages/server/tsconfig.json && tsc -p packages/daemon/tsconfig.json && tsc -p tsconfig.json",
     "check:sql": "bun run scripts/check-no-raw-sql.ts",
+    "check:fwcore": "bun run scripts/check-firmware-core.ts",
     "scan:secrets": "bun run scripts/scan-secrets.ts",
     "test:unit": "bun test packages",
     "test:firmware": "bun run firmware/test/run-native.ts",
     "e2e": "bun run scripts/e2e-phase1.ts",
     "smoke:ops": "bun run scripts/smoke-ops.ts",
-    "gate": "bun run typecheck && bun run check:sql && bun run scan:secrets && bun run test:unit && bun run test:firmware && bun run e2e && bun run smoke:ops",
+    "gate": "bun run typecheck && bun run check:sql && bun run check:fwcore && bun run scan:secrets && bun run test:unit && bun run test:firmware && bun run e2e && bun run smoke:ops",
     "build:daemon": "bun run scripts/build-daemon.ts",
     "daemon:install": "bun run scripts/install-daemon.ts"
   },

@@ -60,7 +60,12 @@ workarounds — a known-fragile CYD path.
 ## Consequences
 
 - New pinned dependency (`XPT2046_Touchscreen`) — within supply-chain discipline
-  (pinned + lockfiled).
+  (pinned). **Pinned as a git URL at the exact v1.4 commit SHA**
+  (`d57f64c8…`), not a registry semver: the PlatformIO registry only carries
+  paulstoffregen's 2019 alpha (`0.0.0-alpha+sha…`), whose `begin()` cannot take a
+  custom `SPIClass` — the dedicated-HSPI wiring needs v1.4's `begin(SPIClass&)`. A
+  commit-SHA git pin is *more* immutable than a floating tag, so it satisfies the
+  pinned-deps posture. (Build confirmed: links at 87.4% flash.)
 - Adds calibration constants to a committed board-config header (not the gitignored
   secrets file, so host tests share them); a board swap means re-measuring them
   (documented, acceptable for a single device).

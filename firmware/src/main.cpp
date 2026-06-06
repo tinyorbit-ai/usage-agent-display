@@ -1,21 +1,26 @@
-// main.cpp — ESP32-2432S028R ("Cheap Yellow Display") — LIVE panel (phase 7).
+// main.cpp — ESP32-2432S028R ("Cheap Yellow Display") — LIVE panel (phase 11).
 //
 // Renders the locked "C2 · Daily Rate" design from real /usage/summary data:
-//   timeframe tabs (tap to cycle TODAY/30D/ALL) · big green hero · amber cost run-rate ·
+//   timeframe tabs (DIRECT-TAP TODAY/30D/ALL) · big green hero · amber cost run-rate ·
 //   named agent rows · tokens/day-14d bar graph · last-used + sync footer.
 //
 // Networking + JSON live here; the visual layout is unchanged from the static preview.
-// Tabs cycle on ANY touch via the XPT2046 PENIRQ line (GPIO36, active-low) — no touch
-// calibration needed. Crisp 1bpp Silkscreen pixel fonts (src/fonts/pixel*.c).
+// Tabs are DIRECT-TAP (phase 11, ADR 0015): real XPT2046 coordinates on a dedicated
+// HSPI bus → the host-tested routing core (ui_input.h / touch_config.h) decides which
+// tab the tap selected. main.cpp only does the SPI read; every routing/gating decision
+// is host-tested off-device. Crisp 1bpp Silkscreen pixel fonts (src/fonts/pixel*.c).
 #include <Arduino.h>
+#include <SPI.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
+#include <XPT2046_Touchscreen.h>
 
 #include "config.h"  // gitignored: WIFI_SSID/PASSWORD, API_BASE_URL, API_BEARER_TOKEN, POLL_INTERVAL_MS
+#include "touch_config.h"  // COMMITTED: kTouchCal, kTimeTabHitBoxes, kTouchTiming (ADR 0015)
 
 LV_FONT_DECLARE(pixel8);   // tabs, graph labels, footer (small meta)
 LV_FONT_DECLARE(pixel16);  // agent rows, sublabels
@@ -28,7 +33,15 @@ static const uint16_t kScreenH = 240;
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[kScreenW * 10];
 
-#define TOUCH_IRQ 36  // XPT2046 PENIRQ — idles high, pulled low while touched
+// XPT2046 touch on a DEDICATED HSPI bus (ADR 0015) — separate from the display SPI.
+#define TOUCH_CLK 25
+#define TOUCH_MOSI 32
+#define TOUCH_MISO 39
+#define TOUCH_CS 33
+#define TOUCH_IRQ 36  // PENIRQ — idles high, pulled low while touched
+static SPIClass touchSPI(HSPI);
+static XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
+static ui::TouchGate g_touchGate;
 
 // --- palette ---
 static const uint32_t kBg = 0x0A0E14, kCard = 0x11161F, kBorder = 0x222B3A;
@@ -325,6 +338,9 @@ static bool poll() {
 void setup() {
   Serial.begin(115200);
   pinMode(TOUCH_IRQ, INPUT);
+  touchSPI.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
+  touch.begin(touchSPI);
+  touch.setRotation(0);  // read raw ADC axes; landscape mapping is ui::rawToScreen (ADR 0015)
   tft.begin();
   tft.setRotation(1);
   lv_init();
@@ -356,16 +372,30 @@ void loop() {
     renderActive();
   }
 
-  // Tap-to-cycle the timeframe (PENIRQ falling edge, debounced).
-  static bool wasTouched = false;
-  static uint32_t lastTap = 0;
-  bool touched = (digitalRead(TOUCH_IRQ) == LOW);
-  if (touched && !wasTouched && (now - lastTap) > 250) {
-    lastTap = now;
-    g_tf = (g_tf + 1) % 3;
-    renderActive();
+  // Direct-tap the timeframe tabs (phase 11, ADR 0015). Read real XPT2046 coordinates
+  // ONLY while PENIRQ asserts; hand the sample to the host-tested routing/gating core,
+  // which returns the selected tab (or nothing) with debounce + no re-arm-under-hold.
+  const bool penirq = (digitalRead(TOUCH_IRQ) == LOW);
+  int rawX = 0, rawY = 0, rawZ = 0;
+  if (penirq) {
+    const TS_Point p = touch.getPoint();
+    rawX = p.x;
+    rawY = p.y;
+    rawZ = p.z;
+    // Calibration aid: print raw + mapped coords so kTouchCal (touch_config.h) can be
+    // tuned on-device — tap each corner, read these, set the four raw extremes.
+    int mx = -1, my = -1;
+    const bool inRange = ui::rawToScreen(ui::kTouchCal, rawX, rawY, mx, my);
+    Serial.printf("touch raw=(%d,%d) -> screen=(%d,%d) z=%d valid=%d\n", rawX, rawY, mx, my, rawZ, inRange);
   }
-  wasTouched = touched;
+  ui::Tap tap;
+  if (ui::touchGate(g_touchGate, ui::kTouchCal, ui::kTimeTabHitBoxes, ui::kTimeTabHitBoxCount,
+                    now, penirq, rawX, rawY, rawZ, ui::kTouchTiming, tap)) {
+    if (tap.kind == ui::TapKind::TimeTab) {
+      g_tf = tap.index;
+      renderActive();
+    }
+  }
 
   delay(5);
 }

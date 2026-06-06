@@ -55,3 +55,7 @@ a way to show more than one time window.
   fetch/parse path is not yet host-tested — a regression against
   [[0007-firmware-host-testable-core]] tracked in [[../improvements]].
 - The flash budget is back to ~87% (networking + four pixel fonts); still fits.
+- **Input model superseded (phase 11, [[0015-touch-input-stack]]):** the tap-to-cycle
+  PENIRQ model (decision 3 above) is replaced by DIRECT-TAP — real XPT2046 coordinates
+  routed through the host-tested core select a specific tab. The deferred "per-tab
+  tapping needs calibration" alternative is now the shipped path.

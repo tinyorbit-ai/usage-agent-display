@@ -3,6 +3,42 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 11 — Firmware: real touch coordinates (direct-tap time tabs)
+**Branch:** `phase/11-touch-coordinates` → squashed to `main`
+
+- **Time tabs are now DIRECT-TAP.** The PENIRQ any-tap-cycle is gone; the firmware reads
+  real XPT2046 coordinates and routes a tap to the specific tab under the finger. All the
+  decision logic — the raw→landscape affine (axis swap + Y mirror + rail rejection), the
+  hit-box table, PENIRQ+pressure gating, and the debounced gate — lives in a
+  **host-compilable core** (`ui_input.h`), with calibration + hit-box geometry in a
+  **committed board-config header** (`touch_config.h`, no secrets). `main.cpp` does only
+  the SPI sensor read. ([[decisions/0015-touch-input-stack]]; input model of
+  [[decisions/0012-panel-visual-system-v2]] amended PENIRQ-cycle → direct-tap.)
+- **The host-testable-core regression (P7) is closed with a TRIPWIRE, not prose**
+  ([[learnings]] 2026-06-06): `scripts/check-firmware-core.ts` (in the gate) fails the
+  build if routing leaves `ui_input.h`, if the native suite stops `#include`-ing it, or if
+  `main.cpp` ever redefines `routeTap`. The native runner now compiles + runs a second TU
+  (`test_ui_input.cpp`): 4 corners + center across a no-swap and a swap+mirror fixture,
+  rail rejection, generous-edge + dead-gap hit-testing, ≥36×40px touch targets, disjoint
+  boxes, and the full debounce/gating/chatter sequence.
+- **Why pressure-gating (codex review, high):** trusting `getPoint()` x/y on any PENIRQ
+  edge is wrong — the XPT2046 returns stale coords at `z≈0` on a noisy edge, which could
+  flip to the wrong tab. The gate now requires PENIRQ **and** `z ≥ minPressure`; an
+  invalid-pressure edge neither routes nor consumes a press. Generalized to [[learnings]]
+  ("a present pin is not a valid reading"). Codex also caught the hit-boxes being 39px/1px
+  vs the documented 38px/2px-gap — corrected and both gap pixels asserted.
+- **Dependency:** `XPT2046_Touchscreen` pinned at the **exact v1.4 commit SHA** via git
+  (the registry only carries a 2019 alpha whose `begin()` can't take a custom `SPIClass`);
+  instantiated on a dedicated HSPI bus (CLK 25 / MOSI 32 / MISO 39 / CS 33 / IRQ 36).
+- **Gate:** `bun run gate` — **green**: typecheck, `check:sql`, **`check:fwcore`** (new
+  tripwire), `scan:secrets` (incl. the new committed `touch_config.h` — clean), 138 unit
+  tests, **firmware native (both TUs)**, e2e, ops smoke. Device build links clean at
+  **87.5% flash**.
+- **Hardware (manual, observable — pending the on-device flash):** per the locked hardware
+  gate, the direct-tap confirmation (tap ALL→TODAY jumps directly; L/M/R + gaps; long
+  press fires once) is recorded when flashed to the CYD. The guessed `kTouchCal` is tuned
+  on-device using the serial `touch raw=(…)→screen=(…)` print added for that purpose.
+
 ## Phase 10 — Backend: per-provider daily series
 **Branch:** `phase/10-daily-by-provider` → squashed to `main`
 
