@@ -10,6 +10,6 @@
   },
   "dependencies": {
     "@usage/shared": "workspace:*",
-    "ccusage": "16.2.4"
+    "ccusage": "20.0.6"
   }
 }

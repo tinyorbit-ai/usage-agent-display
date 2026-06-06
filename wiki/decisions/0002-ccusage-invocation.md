@@ -45,3 +45,9 @@ unified) and forwards the normalized output.
   (echoed in [[../brief]] non-goals note).
 - A `collector` seam wraps the ccusage call so a future direct-parse or a new provider
   slots in behind the same interface ([[0004-ingest-dedup-model]]).
+- **Update 2026-06-06:** ccusage went multi-agent — `monthly --json` now tags rows with
+  `metadata.agents` and detects `claude` + `codex` + `gemini` natively (the beta Codex
+  gap this ADR worried about is gone). The pinned-dependency decision stands; the daemon
+  now points its collector at the relevant ccusage subcommand per provider. See
+  [[../notes/2026-06-06-ccusage-multi-agent]]. The direct-parse fallback is now motivated
+  only by the producer-bucket TZ limit, not by missing provider data.

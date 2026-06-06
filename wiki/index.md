@@ -32,7 +32,8 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 
 ### Incident notes
 
-_None yet — root-cause writeups land here as they happen._
+- [[notes/2026-06-06-ccusage-multi-agent]] — ccusage went multi-agent; the Codex
+  data-source gap closed itself (zero core change)
 
 ## Reading order
 

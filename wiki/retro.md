@@ -65,10 +65,12 @@ host-tested throughout.
 - **Hardware/visual gates for all phases are pending one board bring-up** — the live
   A→B update, tile states/desaturated-photo legibility, cost tile, and the unattended
   full-day run. Deliberately batched to the end (USB board now available).
-- **The Codex *data source* is still stubbed** — the provider seam is proven, but real
-  Codex usage isn't collected yet (needs the ccusage Codex invocation confirmed, or a
-  direct `~/.codex` parse as its own ADR). Biggest functional gap.
+- **~~The Codex data source is still stubbed~~ — RESOLVED 2026-06-06.** ccusage went
+  multi-agent and now reports `claude` + `codex` + `gemini` natively, with zero core
+  change ([[notes/2026-06-06-ccusage-multi-agent]]). The seam paid off; the biggest
+  functional gap closed at the source.
 - **The producer-bucket timezone limit** is now load-bearing across month/projection/
-  budget; the unlock (raw per-event timestamps via a direct-parse collector) is the same
-  as the Codex thread — worth doing once, together.
+  budget. It used to be bundled with the Codex thread; that thread is gone, so this now
+  stands alone as the *sole* remaining justification for a direct-parse collector (raw
+  per-event timestamps) — worth doing, but no longer urgent.
 - gitleaks not installed locally (fallback scan in use); pricing is a flat-rate estimate.

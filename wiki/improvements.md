@@ -5,17 +5,15 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
 
 ## Phase 1
 
-- **Codex collector data-source wiring deferred — provider seam is in place.** The
-  brief wants combined Claude Code **+ Codex** usage. ccusage 16.2.4 exposes no
-  documented Codex flag on this machine (the old `@ccusage/codex` package now says "use
-  ccusage instead"), so rather than fabricate Codex numbers, phase 1 ships the
-  provider-tagged collector **seam** ([[decisions/0002-ccusage-invocation]] /
-  [[decisions/0004-ingest-dedup-model]]): adding Codex is a new `Collector` emitting the
-  same row shape with `provider: "codex"`, and the server's aggregation is already
-  provider-agnostic (proven by a two-provider aggregation test + the fixture e2e). What
-  remains is resolving the *real* Codex data source (confirm the ccusage Codex
-  invocation, or a direct `~/.codex` parse as its own ADR). The hard part — correct
-  cross-machine, multi-provider dedup — is done; this is plumbing behind a settled seam.
+- **✅ RESOLVED (2026-06-06) — Codex (and Gemini) data source now native in ccusage.**
+  Was: the provider seam shipped but real Codex usage wasn't collected (ccusage 16.2.4
+  exposed no usable Codex flag). As of 2026-06-06, `ccusage monthly --json` tags rows
+  with `metadata.agents` and detects **`claude`, `codex`, `gemini`** natively (plus
+  opencode/amp/droid/copilot/qwen/kimi via subcommands) — closed at the source with
+  **zero core changes**, exactly as the provider-agnostic schema
+  ([[decisions/0004-ingest-dedup-model]]) bet. Full writeup:
+  [[notes/2026-06-06-ccusage-multi-agent]]. The only remaining piece is *operational* —
+  point each daemon's collector at the right ccusage subcommand and tag the provider.
 - **gitleaks not installed locally** — `scan:secrets` uses a focused fallback regex scan
   (bearer/WiFi shapes over tracked files) until `brew install gitleaks` makes the full
   default ruleset available. Config (`.gitleaks.toml`) is committed and ready.
@@ -37,10 +35,11 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
 
 ## Retro action items (2026-06-06)
 
-- **Confirm the Codex data source + consider a direct-parse collector.** The provider
-  seam is proven but real Codex usage isn't collected. The fix (raw `~/.codex` /
-  `~/.claude` per-event timestamps) is the SAME unlock as the producer-bucket TZ limit —
-  do them together as one "direct-parse collector" ADR. Biggest functional gap.
+- **~~Confirm the Codex data source~~ — done upstream (2026-06-06); now only the TZ half
+  remains.** ccusage went multi-agent ([[notes/2026-06-06-ccusage-multi-agent]]), so the
+  data-source half is closed. The direct-parse collector (raw `~/.codex` / `~/.claude`
+  per-event timestamps) is now justified **solely** by the producer-bucket TZ limit, not
+  by missing Codex data — lower priority than this item originally implied.
 - **Hardware/visual gates pending one board bring-up** — live A→B update (P1), tile
   states + desaturated-photo legibility (P2), cost tile (P3), sparkline/glow/ticker (P4),
   unattended full-day run (P5). Batched to the end; board now on USB.

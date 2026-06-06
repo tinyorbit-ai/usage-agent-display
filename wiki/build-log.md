@@ -3,6 +3,36 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 6 — ccusage v20 multi-agent + first-light deploy
+**Branch:** `phase/6-ccusage-v20-multiagent` → squashed to `main`
+
+- **The deferred Codex data source resolved itself.** ccusage went multi-agent at v20
+  (`metadata.agents` per row, all report types bucket on `period`); the daemon pin moved
+  `16.2.4 → 20.0.6`. The normalizer was rewritten for the new shape:
+  bucket = `period` (legacy `date`/`sessionId`/`month` kept as fallback), and each row's
+  **provider is derived from the model name** (`providerForModel`, anchored) because one
+  v20 daily row can MIX agents (17/55 real rows did) — `metadata.agents` can't attribute
+  a single breakdown. Result: claude-code / codex / gemini all flow through the
+  provider-agnostic aggregation with **zero server change**. See
+  [[notes/2026-06-06-ccusage-multi-agent]].
+- **Why notable:** this is the [[decisions/0004-ingest-dedup-model]] open-string bet
+  paying off in production — a feature the brief deferred arrived for free behind the
+  seam. The drift was exactly the kind [[decisions/0002-ccusage-invocation]] anticipated
+  (renamed fields → bump the pin + adjust one parser, not a rewrite).
+- **First light on real hardware.** Backend brought up on this machine
+  (server + daemon, `192.168.68.211:8080`); the CYD flashed, joined WiFi (`.184`), polled,
+  and **painted the live token total** — daemon→server→board proven end to end with a
+  real number on the desk (504/496 rows, 0 skipped, hero 3.36 B, CC/codex/gemini split).
+  Flash needed `upload_speed 921600 → 460800` (the 921600 default threw "Invalid head of
+  packet" on the CYD's USB-serial adapter).
+- **Gate:** `bun run gate` — full suite green incl. **+6 normalize tests** (v20 `period`
+  buckets across all report types, a multi-agent row fanning out to 3 providers by model,
+  anchored `providerForModel`, metadata.lastActivity); typecheck clean; e2e + ops smoke
+  green. Real ccusage v20 cross-check: 504 rows round-trip, all three providers present.
+- **Visual half (deferred to phase 7):** the panel *paints the number* but looks crude
+  (plain labels, raw full-length integers, no color/cards) — a dedicated UI polish pass
+  follows.
+
 ## Phase 5 — Extensibility proof + self-host ops hardening
 **Branch:** `phase/5-extensible-and-ops` → squashed to `main` (`561bf2c`)
 

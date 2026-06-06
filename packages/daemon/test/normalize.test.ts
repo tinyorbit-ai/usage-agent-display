@@ -3,7 +3,7 @@
 // type, and malformed entries skipped (not crashed) since the format is beta.
 import { describe, expect, test } from "bun:test";
 import type { SnapshotRow } from "@usage/shared";
-import { normalizeReport } from "../src/normalize.ts";
+import { normalizeReport, providerForModel } from "../src/normalize.ts";
 
 // Trimmed from a real `ccusage daily --json` row.
 const dailyReport = {
@@ -193,5 +193,80 @@ describe("normalizeReport — defensive against drift", () => {
     expect(rows).toHaveLength(4);
     expect(rows.find((r) => r.token_category === "output")!.tokens).toBe(42);
     expect(rows.find((r) => r.token_category === "input")!.tokens).toBe(0);
+  });
+});
+
+// ccusage went multi-agent at v20: every report type buckets on `period`, a single
+// daily row can mix agents, and `lastActivity` moved under `metadata`. Provider must
+// be derived per model breakdown. See wiki note 2026-06-06-ccusage-multi-agent.
+describe("providerForModel — anchored agent attribution", () => {
+  test("claude / codex / gemini model families map to their provider", () => {
+    expect(providerForModel("claude-opus-4-8", "x")).toBe("claude-code");
+    expect(providerForModel("claude-sonnet-4-6", "x")).toBe("claude-code");
+    expect(providerForModel("claude-haiku-4-5-20251001", "x")).toBe("claude-code");
+    expect(providerForModel("gpt-5", "x")).toBe("codex");
+    expect(providerForModel("gpt-5.3-codex", "x")).toBe("codex");
+    expect(providerForModel("gemini-3.1-pro-preview", "x")).toBe("gemini");
+  });
+
+  test("unknown model falls back to the configured provider", () => {
+    expect(providerForModel("some-unknown-llm", "claude-code")).toBe("claude-code");
+    expect(providerForModel("", "codex")).toBe("codex");
+  });
+
+  test("anchored: a proxy name doesn't masquerade as another vendor", () => {
+    // The phase-3 pricing lesson: loose substring matching mis-attributes.
+    expect(providerForModel("local-gpt-proxy", "claude-code")).toBe("claude-code");
+  });
+});
+
+describe("normalizeReport — ccusage v20 shape", () => {
+  test("buckets on `period` for every report type", () => {
+    const daily = { daily: [{ period: "2026-06-05", modelBreakdowns: [{ modelName: "claude-opus-4-8", outputTokens: 5, cost: 0 }] }] };
+    const monthly = { monthly: [{ period: "2026-06", modelBreakdowns: [{ modelName: "gpt-5", outputTokens: 5, cost: 0 }] }] };
+    const session = { session: [{ period: "sess-uuid", modelBreakdowns: [{ modelName: "gemini-3-pro", outputTokens: 5, cost: 0 }] }] };
+    expect(normalizeReport(daily, "daily", "daily", "x").rows.every((r) => r.bucket === "2026-06-05")).toBe(true);
+    expect(normalizeReport(monthly, "monthly", "monthly", "x").rows.every((r) => r.bucket === "2026-06")).toBe(true);
+    expect(normalizeReport(session, "session", "session", "x").rows.every((r) => r.bucket === "sess-uuid")).toBe(true);
+  });
+
+  test("a single multi-agent daily row fans out into per-provider rows by model", () => {
+    // One date, three agents in one row (the real v20 shape: 17/55 rows looked like this).
+    const report = {
+      daily: [
+        {
+          period: "2026-05-07",
+          metadata: { agents: ["claude", "codex", "gemini"] },
+          modelBreakdowns: [
+            { modelName: "claude-opus-4-8", outputTokens: 10, cost: 0.1 },
+            { modelName: "gpt-5.3-codex", outputTokens: 20, cost: 0.2 },
+            { modelName: "gemini-3-pro-preview", outputTokens: 30, cost: 0.3 },
+          ],
+        },
+      ],
+    };
+    const { rows, skipped } = normalizeReport(report, "daily", "daily", "claude-code");
+    expect(skipped).toBe(0);
+    expect(rows).toHaveLength(12); // 3 models × 4 categories
+    const provByModel = Object.fromEntries(rows.map((r) => [r.model, r.provider]));
+    expect(provByModel["claude-opus-4-8"]).toBe("claude-code");
+    expect(provByModel["gpt-5.3-codex"]).toBe("codex");
+    expect(provByModel["gemini-3-pro-preview"]).toBe("gemini");
+    // every provider's tokens landed under the same period bucket
+    expect(new Set(rows.map((r) => r.bucket))).toEqual(new Set(["2026-05-07"]));
+  });
+
+  test("session activity_at reads metadata.lastActivity (v20) and top-level (legacy)", () => {
+    const v20 = {
+      session: [{ period: "s1", metadata: { lastActivity: "2026-05-19T08:00:00.000Z" }, modelBreakdowns: [{ modelName: "gpt-5", outputTokens: 1, cost: 0 }] }],
+    };
+    const { rows } = normalizeReport(v20, "session", "session", "codex");
+    expect(rows.every((r) => r.activity_at === Date.parse("2026-05-19T08:00:00.000Z"))).toBe(true);
+
+    const legacy = {
+      sessions: [{ sessionId: "s2", lastActivity: "2026-05-20T09:00:00.000Z", modelBreakdowns: [{ modelName: "gpt-5", outputTokens: 1, cost: 0 }] }],
+    };
+    const { rows: lrows } = normalizeReport(legacy, "session", "sessions", "codex");
+    expect(lrows.every((r) => r.activity_at === Date.parse("2026-05-20T09:00:00.000Z"))).toBe(true);
   });
 });
