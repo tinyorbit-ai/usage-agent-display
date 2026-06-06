@@ -76,6 +76,8 @@ export function buildSummary(db: Db, nowMs: number, config: SummaryConfig): Usag
   const monthRollup = db.monthToDate(month);
 
   const lu = db.lastUsed();
+  const timeframes = buildTimeframes(db, nowMs, config.timezone);
+  const daily = db.dailySeries(14);
   return {
     v: 2,
     generated_at: new Date(nowMs).toISOString(),
@@ -90,13 +92,69 @@ export function buildSummary(db: Db, nowMs: number, config: SummaryConfig): Usag
     month: { month, tokens: monthRollup.tokens, cost_usd: monthRollup.cost_usd },
     cost: buildCostInstrument(db, nowMs, config, month),
     ...buildLive(db, nowMs),
-    timeframes: buildTimeframes(db, nowMs, config.timezone),
-    daily: db.dailySeries(14),
+    timeframes,
+    daily,
     last_used:
       lu === null
         ? null
         : { provider: lu.provider, age_seconds: Math.max(0, Math.round((nowMs - lu.activity) / 1000)) },
+    daily_by_provider: buildDailyByProvider(db, daily, timeframes),
   };
+}
+
+/**
+ * Split the combined `daily` series per provider, index-aligned to `daily`'s buckets, so
+ * the firmware can redraw the bar graph filtered to one agent (phase 10, ADR 0014).
+ *
+ * The bucket axis is `daily`'s — the latest buckets-with-data (possibly < 14, gaps
+ * collapsed), NOT a fixed 14-day calendar. Each provider gets a `daily.length`-long array
+ * (zero-filled where it has no row on a bucket). Every provider that appears in ANY
+ * timeframe's `by_provider` gets a key — a provider with all-time usage but nothing in the
+ * graph window is an explicit all-zeros array, never a missing key, so a filtered graph can
+ * render an honest empty series instead of falling back to the combined one.
+ *
+ * The split sums back to the combined `daily` bucket-by-bucket BY CONSTRUCTION:
+ * {@link Db.dailySeriesByProvider} shares {@link Db.dailySeries}'s base query (canonical
+ * daily rows, flat `SUM(tokens)`), so `Σ_p daily_by_provider[p][i] === daily[i].tokens`
+ * holds without a reconciliation step. Tests assert it as a tripwire.
+ */
+function buildDailyByProvider(
+  db: Db,
+  daily: { date: string; tokens: number }[],
+  timeframes: Timeframes,
+): Record<string, number[]> {
+  // Map each axis date to its index; `since` bounds the query to exactly the axis window
+  // (oldest axis date onward). A bucket older than the window maps to no index and is
+  // dropped — it is not on the graph. `""` (empty axis) means an empty store: no rows.
+  const axisIndex = new Map(daily.map((d, i) => [d.date, i] as const));
+  const since = daily[0]?.date ?? "";
+
+  // Provider universe = everyone in any timeframe's split (`all` is the all-time superset;
+  // unioning all three keeps "present in any timeframe ⇒ key present" explicit). Each
+  // starts as an explicit zeros array of the axis length — idle ⇒ zeros, never a missing
+  // key or a short array.
+  //
+  // `Object.create(null)`, NOT `{}`: `provider` is an OPEN string, so an id that collides
+  // with an Object.prototype member (`__proto__`, `constructor`, `toString`, …) would, on a
+  // plain object, make `series[p] ??=` read the inherited member (truthy → no own key
+  // written) and then mutate the prototype — dropping that provider's series AND polluting
+  // `Object.prototype` process-wide. A null-prototype map has no inherited names, so every
+  // open provider id is a plain own key. ([[learnings]] — open-string identifiers are a trap.)
+  const series: Record<string, number[]> = Object.create(null);
+  for (const tf of [timeframes.today, timeframes.d30, timeframes.all]) {
+    for (const p of tf.by_provider) series[p.provider] ??= new Array<number>(daily.length).fill(0);
+  }
+
+  // Place each in-window (provider, bucket) total at its axis index. A provider with a row
+  // in the window is by definition in `all`, so its array already exists; `??=` is a
+  // defensive guard so a tokens value is never silently dropped.
+  for (const r of db.dailySeriesByProvider(since)) {
+    const i = axisIndex.get(r.date);
+    if (i === undefined) continue; // older than the axis window — not on the graph
+    (series[r.provider] ??= new Array<number>(daily.length).fill(0))[i] = r.tokens;
+  }
+
+  return series;
 }
 
 /** Roll up one timeframe (per-provider split + totals + active-day count) from `since`. */

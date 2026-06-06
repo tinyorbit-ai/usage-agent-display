@@ -9,6 +9,7 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 ## Map of content
 
 - [[brief]] — what we're building, for whom, the feel, non-goals
+- [[brief-agent-filter]] — feature brief: two-dimensional time × agent tabs (direct-tap filter)
 - [[plan]] — the phased build plan; each phase has a verifiable gate + branch
 - [[architecture]] — the 30-second version (filled in as phases land)
 - [[build-log]] — one entry per phase: the gate met before merge
@@ -31,6 +32,8 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 - [[decisions/0011-retention-policy]] — prune snapshots by last-write age, server-self-pruned (phase 5)
 - [[decisions/0012-panel-visual-system-v2]] — pixel font + tap-to-cycle timeframe tabs + per-timeframe contract (phase 7)
 - [[decisions/0013-distribution-and-deployment]] — compiled daemon binary + self-host server deploy + bearer-gated public URL (phase 8)
+- [[decisions/0014-agent-filter-direct-tap]] — direct-tap time × agent tabs + full-readout per-agent filter; amends 0012's tap-to-cycle
+- [[decisions/0015-touch-input-stack]] — XPT2046 on dedicated SPI + baked calibration; pure host-tested tap routing (phases 11–12)
 
 ### Incident notes
 

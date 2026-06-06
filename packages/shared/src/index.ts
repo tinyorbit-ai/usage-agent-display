@@ -223,6 +223,22 @@ export interface UsageSummary {
   daily: DailyPoint[];
   /** phase 7 — which provider was used most recently, or null. */
   last_used: LastUsed | null;
+  /**
+   * phase 10 — the `daily` token series split per provider, so the firmware can redraw
+   * the bar graph filtered to one agent. Keyed by the SAME open provider id used in
+   * {@link ProviderBreakdown} (`claude-code`, `codex`, …). Each array is index-aligned
+   * to `daily`: `daily_by_provider[p][i]` is provider `p`'s tokens on `daily[i].date`,
+   * so `length === daily.length` and the buckets/order match `daily` exactly (NOT a fixed
+   * 14 — `daily` is the latest buckets-with-data and can be shorter). The arrays sum to
+   * `daily` bucket-by-bucket (`Σ_p daily_by_provider[p][i] === daily[i].tokens`). Every
+   * provider that appears in any timeframe's `by_provider` also appears here — a provider
+   * with all-time usage but nothing in the graph window is an explicit all-zeros array,
+   * never a missing key, so a filtered graph can render an honest empty series.
+   *
+   * OPTIONAL so firmware built before phase 10 still typechecks against this contract and
+   * simply ignores the field. See wiki/architecture.md.
+   */
+  daily_by_provider?: Record<string, number[]>;
 }
 
 /** Bounds shared by validation on both ends. Generous but finite — DoS ceilings. */

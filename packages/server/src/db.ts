@@ -91,6 +91,10 @@ export class Db {
   private readonly byProviderSinceStmt: Statement<GroupRollup, [string]>;
   private readonly daysSinceStmt: Statement<{ days: number }, [string]>;
   private readonly dailySeriesStmt: Statement<{ date: string; tokens: number }, [number]>;
+  private readonly dailySeriesByProviderStmt: Statement<
+    { provider: string; date: string; tokens: number },
+    [string]
+  >;
   private readonly lastUsedStmt: Statement<{ provider: string; activity: number }, []>;
 
   constructor(path = ":memory:") {
@@ -299,6 +303,21 @@ export class Db {
         LIMIT ?;`,
     );
 
+    // Per-provider daily tokens, for the same bucket window as dailySeries. Built from
+    // the SAME base as dailySeriesStmt — canonical `report_type='daily'`, flat `SUM(tokens)`
+    // (tokens are not cost-replicated, so no inner cost-dedup, exactly like dailySeries) —
+    // with `provider` added to the GROUP BY in ONE pass (single GROUP BY, never one query
+    // per provider). Because both are a flat SUM over the same rows, the split sums back to
+    // the combined series bucket-by-bucket BY CONSTRUCTION, not by coincidence. The caller
+    // passes `since` = the oldest date of the combined `daily` axis so this returns exactly
+    // the rows on that axis (lexicographic compare = chronological for YYYY-MM-DD); `""`
+    // would return all-time. Newest-first, reindexed onto the axis in JS (see summary.ts).
+    this.dailySeriesByProviderStmt = this.handle.query(
+      `SELECT provider, bucket AS date, CAST(SUM(tokens) AS INTEGER) AS tokens
+         FROM snapshots WHERE report_type = 'daily' AND bucket >= ?
+        GROUP BY provider, bucket;`,
+    );
+
     // The provider with the newest session activity time (date-granular from ccusage).
     this.lastUsedStmt = this.handle.query(
       `SELECT provider, MAX(activity_at) AS activity
@@ -422,6 +441,16 @@ export class Db {
   /** The most recent `limit` daily buckets, returned oldest→newest. */
   dailySeries(limit: number): { date: string; tokens: number }[] {
     return this.dailySeriesStmt.all(limit).reverse();
+  }
+
+  /**
+   * Per-provider daily tokens for every `(provider, bucket)` with `bucket >= since`
+   * (`""` = all-time), as flat rows. The combined {@link dailySeries} defines the bucket
+   * axis; pass its oldest date as `since` so this covers exactly that window, then reindex
+   * each provider onto the axis (zero-filling absent buckets) in the summary builder.
+   */
+  dailySeriesByProvider(since: string): { provider: string; date: string; tokens: number }[] {
+    return this.dailySeriesByProviderStmt.all(since);
   }
 
   /** The provider with the newest session activity time, or null. */

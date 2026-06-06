@@ -3,6 +3,37 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 10 — Backend: per-provider daily series
+**Branch:** `phase/10-daily-by-provider` → squashed to `main`
+
+- **`/usage/summary` now carries `daily_by_provider`** — the combined `daily` token
+  series split per provider, so phase 12's agent filter can redraw the bar graph for one
+  agent. Each array is index-aligned to `daily`'s **actual** bucket axis (the latest
+  buckets-with-data — length can be `< 14`, calendar gaps collapsed), zero-filled where a
+  provider has no row, with every provider seen in any timeframe present (idle ⇒ explicit
+  all-zeros, never a missing key). New `dailySeriesByProvider()` rollup is a **single**
+  `GROUP BY provider, bucket` built from the **same base query** as `dailySeries`, so the
+  split sums to the combined series bucket-by-bucket **by construction** — the consistency
+  invariant is structural, not reconciled. Additive + **optional** field; pre-phase-10
+  firmware typechecks and ignores it. ([[decisions/0014-agent-filter-direct-tap]], shape
+  recorded in [[architecture]].)
+- **Why null-prototype map (codex review, high):** `provider` is an open string, so an id
+  like `__proto__`/`constructor` on a plain `{}` would drop the key and pollute
+  `Object.prototype` process-wide. Built with `Object.create(null)`; regression-tested.
+  Generalized to [[learnings]] (open string as object key ⇒ null-proto map / Map).
+- **Why no server-side size cap (taste decision, resolved):** the serialized summary is
+  **2607 B** at a worst-realistic 4×3×14 load (≤ the ~6 KB the shipped firmware's unbounded
+  parse can take). It is bounded for the *realistic* provider set, not adversarially — but
+  the whole summary has been provider/machine-unbounded since P2/P7, and a cap would break
+  the locked *present⇒key* + *Σ==daily* invariants the P12 filter needs. The adversarial
+  case is owned by **phase 12's bounded on-device parse**. Recorded in [[improvements]].
+- **Gate:** `bun run gate` — **green** (exit 0): `typecheck`, `check:sql`, `scan:secrets`,
+  **138** unit tests (6 new phase-10 tests incl. exact-index split, `<14`-axis + calendar
+  gap, structural Σ-consistency, present⇒key-as-zeros, sparse-provider zeros,
+  canonical-daily-only, `__proto__`/`constructor` keys, ≤6 KB payload), firmware native,
+  e2e, ops smoke. Server-only — no hardware half. Codex adversarial pass run (1 high fixed,
+  1 high + 1 med reconciled to a documented limitation).
+
 ## Phase 9 — Firmware HTTPS + open-source prep
 **Branch:** `phase/9-https-and-oss-prep` → squashed to `main`
 

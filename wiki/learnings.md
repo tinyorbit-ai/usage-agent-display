@@ -10,6 +10,51 @@ and enforce these.
 - **Fixed:** <how it was resolved>
 - **Rule to remember:** <generalizable lesson, phrased so the next build avoids it> -->
 
+## 2026-06-06 — Phase 10 — An open string used as an object key needs a null-prototype map
+- **Found:** (codex, high) `daily_by_provider` was assembled into a plain `{}` keyed by the
+  **open-string** `provider` id. An id colliding with an Object.prototype member
+  (`__proto__`, `constructor`, `toString`, …) made `series[p] ??= […]` read the inherited
+  member (truthy ⇒ no own key written) and then `series[p][i] = tokens` **mutate
+  `Object.prototype` process-wide** — dropping that provider's series (breaking the
+  Σ-providers === daily invariant) AND polluting the prototype for the whole server. The
+  field passed validation (`provider` is any 1–256-char string), so it was reachable.
+- **Fixed:** Build the map with `Object.create(null)` (no inherited names ⇒ every open id is
+  a plain own key); added a regression test with provider ids `__proto__`/`constructor`
+  asserting both become real keys, the sum invariant holds, and `Object.prototype` is not
+  polluted.
+- **Rule to remember:** When an **open/untrusted string** becomes an **object key**, use
+  `Object.create(null)` or a `Map` — never a plain `{}`. This is the key-side twin of the
+  existing open-string traps (dedup key via `JSON.stringify`, anchored price matching): an
+  open string in any structural position (dedup key, map key, price class) is a
+  silent-collision/pollution trap until it's contained.
+
+## 2026-06-06 — Retro synthesis (P6–9) — An architectural discipline needs a tripwire, or it erodes
+- **Pattern (P7, carried through P8/P9):** the host-testable firmware core
+  ([[decisions/0007-firmware-host-testable-core]]) — a *"kept"* win in the 1–5 retro —
+  silently regressed the moment phase 7's UI ambition rewrote `main.cpp` standalone, and
+  stayed regressed across four landings despite being flagged its own "highest-value
+  cleanup" each time. The discipline had no automated enforcement, so the first phase with
+  a reason to bypass it did, and nothing failed.
+- **Standing rule:** if you *rely* on an architectural invariant (host-testable parse, no
+  raw SQL, append-only schema, additive contract), give it an automated tripwire that
+  fails the gate when violated — a prose ADR is a wish, not a guard. And when a phase
+  defers its own named "highest-value cleanup," the **next** phase's build opens by
+  triaging it: keep-deferred (state why) or do-now. A deferral nobody revisits is invisible
+  debt, not a scope cut.
+
+## 2026-06-06 — Retro synthesis (P6–9) — A quiet review log means the work changed shape, not that it got safe
+- **Pattern:** phases 6–9 produced **zero** new learnings entries; phases 1–5 produced
+  fourteen. The difference wasn't review rigor — it was work type. P1–5 wrote to the
+  dedup-keyed store (where every high-severity catch lived); P6–9 were
+  integration/ops/packaging (pin bump, compiled binaries, deploy config, TLS, secret
+  redaction), where the verification grain is "first light on real hardware / binary
+  boots clean / leak re-scan clean," not "Codex finds a silent overwrite."
+- **Standing rule:** match the gate to the work's failure mode. Dedup-store writes →
+  adversarial diff review + the dedup-write checklist below. Integration/ops/hardware →
+  runtime proof (real device, real subprocess, real scan), because the bugs there don't
+  live in the diff. Don't read an empty learnings log as "nothing to catch" — ask whether
+  the *right kind* of verification ran for the kind of work it was.
+
 ## 2026-06-06 — Retro synthesis — Scrutinize every write to the deduped store
 - **Pattern (across P1/P2/P4/P5):** the single biggest source of high-severity findings
   was writes to the dedup-keyed store that silently collide or overwrite — destructive

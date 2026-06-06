@@ -3,6 +3,25 @@
 Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
 "deferred X for Y" is a positive signal, not an apology.
 
+## Phase 10
+
+- **`/usage/summary` size is bounded for the *realistic* provider set, not adversarially
+  (codex phase-10 review).** `daily_by_provider` is bound to the providers actually present
+  and the whole serialized summary measures **2607 B** at a worst-realistic load (4 machines
+  × the 3 branded agents × 14 days) — comfortably under the ~6 KB the *currently shipped*
+  firmware's unbounded `JsonDocument` parse (`main.cpp:286`) can take. It is **not** bounded
+  against a pathological producer that posts dozens of providers or 256-char provider ids:
+  the summary as a whole has been provider/machine-unbounded since phases 2/7 (`by_provider`,
+  `by_machine`, and each timeframe's `by_provider` all emit every key), so `daily_by_provider`
+  only adds a proportional term. We deliberately did **not** cap providers in this field — a
+  cap would break the locked gate's *present⇒key* and *Σ-providers === daily* invariants that
+  the phase-12 agent filter depends on, and would only bound this one field. The real,
+  already-planned fix is **phase 12 moving the live firmware parse onto the bounded
+  host-tested core** (the `kMaxBodyBytes` cap), which makes the body untrusted-safe on-device
+  regardless of what the server emits. Resolved as "document the actual guarantee" per the
+  locked plan's escape valve. Trust boundary: server→firmware (body untrusted) —
+  [[decisions/0014-agent-filter-direct-tap]].
+
 ## Phase 1
 
 - **✅ RESOLVED (2026-06-06) — Codex (and Gemini) data source now native in ccusage.**
@@ -33,7 +52,28 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
   ccusage's pre-aggregated daily rows. Deferred — the current behavior is the best
   available from ccusage and is documented at the query (Codex phase-2 review).
 
-## Retro action items (2026-06-06)
+## Retro action items (2026-06-06, phases 6–9)
+
+- **Enforce ADR 0007 with a gate check (top priority).** The host-testable firmware core
+  regressed in phase 7 (`main.cpp` rewritten standalone, `usage_state.h` now dead) and has
+  carried open through 8/9 + two chores. Extract the P7 poll/`fillTf` JSON parse into a
+  host-compiled core (as phase 1 did) *and* add a gate tripwire that fails when firmware
+  parses JSON outside it — or delete the dead `usage_state.h` if the direction changed.
+  An ADR with no automated guard erodes; this is the proof. See [[learnings]].
+- **Pin TLS root or embed the CA bundle (security teeth).** Firmware HTTPS currently
+  defaults to `setInsecure()` — encrypted but unauthenticated, so a MITM can capture the
+  bearer token over the open internet. Pin Cloudflare's root in `config.h` `API_ROOT_CA`
+  (ISRG Root X1 / GTS Root R1), or embed the Mozilla CA bundle via `setCACertBundle()`
+  (needs a PlatformIO embed step). Already noted under Phase 8; elevated here as the live
+  exposure.
+- **Open each build by triaging the prior phase's deferred/known-gaps list.** `last_used`
+  null, per-tab calibration, and the firmware core all carried forward silently. Make
+  keep-deferred-(why) vs do-now an explicit first step of the next build.
+- **Features get phases; only true chores skip.** The one-command installer (a real
+  166-line distribution feature) landed straight on `main` with no phase/build-log entry.
+  Hold the phase line for features post-plan.
+
+## Retro action items (2026-06-06, phases 1–5)
 
 - **~~Confirm the Codex data source~~ — done upstream (2026-06-06); now only the TZ half
   remains.** ccusage went multi-agent ([[notes/2026-06-06-ccusage-multi-agent]]), so the

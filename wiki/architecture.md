@@ -95,6 +95,34 @@ fields without breaking older firmware:
   a 14-point `daily` series for the bar graph, and `last_used` (phase 7). A new
   **unauthenticated `GET /health`** liveness route sits in front of the bearer gate
   (phase 8); every data route still requires the token.
+- **Per-provider daily series (phase 10, shipped).** `/usage/summary` adds an **optional**
+  `daily_by_provider`, an object keyed by **open provider id**
+  (`{"claude-code": [...], "codex": [...], …}`), so the firmware can redraw the bar graph
+  for one filtered agent. Each array is index-aligned to `daily`: `daily_by_provider[p][i]`
+  is provider `p`'s tokens on `daily[i].date`, so **`length === daily.length`** and the
+  buckets/order match `daily` exactly. **NOT a fixed-14 array** — `daily` is the latest
+  buckets-*with-data* (`< 14` possible, calendar gaps collapsed), and each provider series
+  is reindexed onto that axis, zero-filling buckets where the provider had no row. Every
+  provider that appears in any timeframe's `by_provider` gets a key; one with all-time usage
+  but nothing in the graph window is an explicit `daily.length`-long **all-zeros** array,
+  never a missing key (so a filtered graph renders an honest empty series, never a fallback
+  to the combined one). The split is derived from the **same base query** as the combined
+  `daily` (canonical daily rows, flat `SUM(tokens)`, single `GROUP BY provider, bucket` — no
+  N+1), so `Σ_p daily_by_provider[p][i] === daily[i].tokens` holds by construction (asserted
+  as a test tripwire). Provider-agnostic (open keys, not enum fields); additive (`v`
+  unchanged, optional so pre-phase-10 firmware ignores it). The field is bounded to the
+  providers actually present and the serialized summary stays ≤ ~6KB (measured 2607 B at a
+  worst-realistic 4×3×14 load) — the shipped firmware still parses `/usage/summary` with an
+  **unbounded** `JsonDocument` (`main.cpp:286`), so the small bound matters until phase 12
+  moves the live parse onto the bounded host-tested core. Powers the agent filter
+  ([[decisions/0014-agent-filter-direct-tap]]).
+- **Two-axis tabs + real touch (phases 11–12).** The CYD top bar becomes a 2-D selection
+  — time tabs (left) × a 4-segment agent control (right, replacing the static `ALL
+  AGENTS` label). Both groups are **direct-tap**: the firmware reads XPT2046 coordinates
+  on a dedicated SPI bus (the PENIRQ any-tap-cycle model is retired), routes the tap via
+  a pure host-tested `routeTap(x,y)`, and re-scopes hero + cost + graph to the selected
+  provider. See [[decisions/0014-agent-filter-direct-tap]] (feature shape) and
+  [[decisions/0015-touch-input-stack]] (touch driver + calibration).
 - **Multi-agent for real.** ccusage v20 reports claude + codex + gemini natively; the
   daemon derives each row's provider from the model name (phase 6,
   [[notes/2026-06-06-ccusage-multi-agent]]).
@@ -117,3 +145,5 @@ fields without breaking older firmware:
   · [[decisions/0010-live-transport]] · [[decisions/0011-retention-policy]]
 - [[decisions/0012-panel-visual-system-v2]] — pixel font + timeframe tabs (phase 7)
 - [[decisions/0013-distribution-and-deployment]] — compiled daemon + public deploy (phase 8)
+- [[decisions/0014-agent-filter-direct-tap]] — direct-tap time × agent tabs + full-readout filter (phases 10–12)
+- [[decisions/0015-touch-input-stack]] — XPT2046 on dedicated SPI + baked calibration (phases 11–12)
