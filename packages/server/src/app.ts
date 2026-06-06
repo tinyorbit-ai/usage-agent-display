@@ -103,6 +103,12 @@ export function createApp(deps: AppDeps): App {
     async fetch(req: Request): Promise<Response> {
       const url = new URL(req.url);
 
+      // Unauthenticated liveness probe (no data) — for the deploy hub / tunnel health
+      // checks. Carries nothing sensitive, so it sits in front of the bearer gate.
+      if (req.method === "GET" && url.pathname === "/health") {
+        return json({ ok: true });
+      }
+
       // Both endpoints require the shared bearer token (read path included).
       if (!isAuthorized(req, token)) return unauthorized();
 

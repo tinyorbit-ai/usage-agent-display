@@ -3,6 +3,30 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 8 — Distribute the daemon + deploy the server (public, bearer-gated)
+**Branch:** `phase/8-distribute-and-deploy` → squashed to `main`
+
+- **Daemon is now a single binary.** `bun run build:daemon` (`scripts/build-daemon.ts`)
+  `bun build --compile`s the daemon into one self-contained executable per platform —
+  macOS arm64 (57 MB) / x64 (63 MB) / linux x64 (99 MB) → `dist/` with a run README.
+  Config stays env-driven; ccusage is spawned, not bundled (host needs `bunx`/`npx` or
+  `USAGE_CCUSAGE_CMD`). Verified: the binary boots, logs config, exits clean on SIGTERM.
+- **Server deploys via vibe-realm** (the owner's PM2 + Doppler + Cloudflare-Tunnel VM
+  system). Added `packages/server/ecosystem.config.js` (app `usage`, `interpreter: bun`,
+  Doppler `envVars` incl. `USAGE_BEARER_TOKEN` ← `USAGE_AGENT_BEARER_TOKEN`,
+  `publicInternet.enabled`). The repo is registered in vibe-realm `repos.json`
+  (`appsDir: "packages"`; owner commits there). Public URL → `https://usage.<baseDomain>`.
+- **`GET /health`** — new unauthenticated liveness route (no data) in front of the bearer
+  gate, for the hub/tunnel health check. Everything else stays bearer-protected.
+- **One secret, one source:** `USAGE_BEARER_TOKEN` from Doppler; the same value goes on
+  every daemon and the firmware `config.h`. No literal in any repo.
+  ([[decisions/0013-distribution-and-deployment]])
+- **Gate:** `bun run gate` — full suite green incl. **+2 health tests** (unauthenticated
+  200; not a backdoor — data endpoint still 401s); typecheck clean; e2e + ops smoke green.
+- **Deferred ([[improvements]]):** the GitHub repo must be pushed for the VM to clone it;
+  firmware still speaks plain HTTP to a LAN address — public HTTPS from the ESP32 needs
+  `WiFiClientSecure` (TLS), a follow-up.
+
 ## Phase 7 — Panel visual polish + working timeframe tabs (live)
 **Branch:** `phase/7-panel-visual-polish` → squashed to `main`
 

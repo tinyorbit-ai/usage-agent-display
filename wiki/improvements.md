@@ -44,6 +44,25 @@ Part of [[index]]. Running, honest list. Deliberate scope cuts go here too —
   states + desaturated-photo legibility (P2), cost tile (P3), sparkline/glow/ticker (P4),
   unattended full-day run (P5). Batched to the end; board now on USB.
 
+## Phase 8
+
+- **Firmware can't reach the public HTTPS URL yet.** The CYD does plain HTTP to a LAN
+  address. The public server is `https://usage.<baseDomain>` (TLS) — the ESP32 needs
+  `WiFiClientSecure` (cert/SNI, more flash + a root CA) to hit it. On the home LAN the
+  panel can keep using the VM's local/tailscale address over HTTP; remote HTTPS is a
+  follow-up ([[decisions/0013-distribution-and-deployment]]).
+- **The GitHub repo must be pushed (private) for the VM to clone it.** vibe-realm
+  `repos.json` points at `git@github.com:matteo-hertel/usage-agent-display.git`; create +
+  push it, and ensure the VM's deploy key has read access.
+- **Doppler key must be set:** `USAGE_AGENT_BEARER_TOKEN` (the shared secret) and,
+  optionally, `USAGE_AGENT_BUDGET_USD`. The daemons get the same token value.
+- **ccusage isn't bundled in the daemon binary.** It's spawned, so a target machine needs
+  `bunx` (install Bun) or `npx` (`USAGE_CCUSAGE_CMD="npx -y ccusage@20.0.6"`). Bundling
+  would need a stable ccusage library API, which it doesn't have ([[decisions/0002-ccusage-invocation]]).
+- **Per-app `bun install` in a workspace child.** vibe-realm root-installs the monorepo
+  (links `@usage/shared`) then per-app installs `packages/server` — fine in practice, but
+  if a deploy ever resolves the workspace dep oddly, prefer the root install as source of truth.
+
 ## Phase 7
 
 - **Tabs cycle on any tap, not per-tab tapping.** Tap-anywhere → next timeframe via the

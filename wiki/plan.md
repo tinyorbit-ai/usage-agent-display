@@ -329,3 +329,13 @@ light confirmed on the CYD (real hero, all three providers). See [[build-log]].
 hierarchy, color-coded agents, tokens/day graph); tap-to-cycle tabs (PENIRQ); additive
 `/usage/summary` `timeframes`/`daily`/`last_used` with +4 tests; full gate green; verified
 live end-to-end on the CYD. ADR [[decisions/0012-panel-visual-system-v2]]. See [[build-log]].
+
+### Phase 8 — Distribute the daemon + deploy the server (public, bearer-gated)
+**Branch:** `phase/8-distribute-and-deploy`
+**Goal:** Run the server on the VM with a public URL reachable from any machine, and
+ship the daemon as a drop-in binary for laptop + work laptop.
+**Gate (met):** `bun run build:daemon` produces single-file binaries (macOS arm64/x64,
+linux x64) + run README; `packages/server/ecosystem.config.js` for vibe-realm (PM2 +
+Doppler + Cloudflare Tunnel → `https://usage.<baseDomain>`); unauthenticated `GET /health`
+(+2 tests); repo registered in vibe-realm `repos.json`; full gate green. ADR
+[[decisions/0013-distribution-and-deployment]]. See [[build-log]].
