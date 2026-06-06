@@ -19,7 +19,7 @@ function requireEnv(name: string): string {
 
 const token = requireEnv("USAGE_BEARER_TOKEN");
 const dbPath = process.env.USAGE_DB_PATH ?? "usage.db";
-const port = Number(process.env.PORT ?? 8080);
+const port = Number(process.env.PORT ?? 3410);
 const staleAfterSeconds = Number(process.env.USAGE_STALE_AFTER_SECONDS ?? 120);
 // Default the reckoning timezone to the server's own zone; override with env.
 const timezone =

@@ -19,7 +19,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>USAGE_BEARER_TOKEN</key><string>REPLACE-with-shared-secret</string>
-    <key>PORT</key><string>8080</string>
+    <key>PORT</key><string>3410</string>
     <key>USAGE_DB_PATH</key><string>/REPLACE/path/to/usage.db</string>
     <key>USAGE_RECKONING_TZ</key><string>America/New_York</string>
     <key>USAGE_STALE_AFTER_SECONDS</key><string>120</string>

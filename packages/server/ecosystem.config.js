@@ -16,7 +16,7 @@ module.exports = {
       envVars: [
         // PORT is shifted to an internal port by the deploy system when HTTPS is on;
         // the server binds whatever PORT it's given. The default lets the hub link it.
-        { name: "PORT", default: "8080" },
+        { name: "PORT", default: "3410" },
         // The shared secret — set USAGE_AGENT_BEARER_TOKEN in Doppler. The SAME value
         // goes on every daemon (laptops) and the firmware config.h.
         { name: "USAGE_BEARER_TOKEN", from: "USAGE_AGENT_BEARER_TOKEN" },

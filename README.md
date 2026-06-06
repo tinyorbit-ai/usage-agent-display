@@ -51,7 +51,7 @@ to `.env` and fill it in.
 USAGE_BEARER_TOKEN=… bun run packages/server/src/index.ts
 
 # daemon (each machine)
-USAGE_BEARER_TOKEN=… USAGE_SERVER_URL=http://<server>:8080 bun run packages/daemon/src/index.ts
+USAGE_BEARER_TOKEN=… USAGE_SERVER_URL=http://<server>:3410 bun run packages/daemon/src/index.ts
 ```
 
 Firmware: see [`firmware/README.md`](firmware/README.md).

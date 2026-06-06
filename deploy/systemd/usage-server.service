@@ -5,7 +5,7 @@
 #
 # /etc/usage/server.env (chmod 600 — holds the shared secret, NOT in git):
 #   USAGE_BEARER_TOKEN=replace-with-shared-secret
-#   PORT=8080
+#   PORT=3410
 #   USAGE_DB_PATH=/var/lib/usage/usage.db
 #   USAGE_RECKONING_TZ=UTC
 #   USAGE_RETENTION_DAYS=400

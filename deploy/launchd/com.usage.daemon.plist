@@ -18,7 +18,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>USAGE_BEARER_TOKEN</key><string>REPLACE-with-shared-secret</string>
-    <key>USAGE_SERVER_URL</key><string>http://REPLACE-server-host:8080</string>
+    <key>USAGE_SERVER_URL</key><string>http://REPLACE-server-host:3410</string>
     <key>USAGE_MACHINE_ID</key><string>REPLACE-unique-machine-id</string>
     <key>USAGE_INTERVAL_SECONDS</key><string>30</string>
   </dict>

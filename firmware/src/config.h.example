@@ -11,9 +11,9 @@
 
 // --- Central API ---
 // The base URL of the server (no trailing slash). Either:
-//   - a LAN address over HTTP:    http://192.168.1.50:8080
+//   - a LAN address over HTTP:    http://192.168.1.50:3410
 //   - the public server over HTTPS: https://usage.example.com   (TLS auto-enabled)
-#define API_BASE_URL "http://192.168.1.50:8080"
+#define API_BASE_URL "http://192.168.1.50:3410"
 
 // The shared bearer token — must match USAGE_BEARER_TOKEN on the server/daemons.
 #define API_BEARER_TOKEN "replace-with-shared-secret"
