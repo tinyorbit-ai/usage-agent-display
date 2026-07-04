@@ -6,7 +6,8 @@
  *   bun run build:daemon
  *
  * NOTE: the daemon shells out to ccusage at runtime (it does not bundle it). The target
- * machine needs `bunx`/`npx` on PATH, or set USAGE_CCUSAGE_CMD. See dist/README after build.
+ * machine needs the pinned ccusage dependency or a configured USAGE_CCUSAGE_CMD. See
+ * dist/README after build.
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
@@ -61,17 +62,22 @@ export USAGE_SERVER_URL="https://usage.example.com"   # the public server URL
 export USAGE_BEARER_TOKEN="<the shared secret from Doppler>"
 export USAGE_MACHINE_ID="laptop"                         # unique per machine
 export USAGE_INTERVAL_SECONDS=30
-# Optional: pin/override how ccusage is invoked (default: bunx ccusage).
-# export USAGE_CCUSAGE_CMD="npx -y ccusage@20.0.6"
+# Optional: override how ccusage is invoked. Keep it pinned and argv-array safe.
+# export USAGE_CCUSAGE_CMD='["/absolute/path/to/bun","/path/to/packages/daemon/node_modules/.bin/ccusage"]'
+export USAGE_CCUSAGE_TIMEOUT_SECONDS=60
 ./usage-daemon-macos-arm64
 \`\`\`
 
 ## Requirement: ccusage
 
 The binary embeds Bun for itself but runs **ccusage** as a subprocess, so the machine
-needs \`bunx\` (install Bun: \`curl -fsSL https://bun.sh/install | bash\`) or \`npx\`
-(set \`USAGE_CCUSAGE_CMD="npx -y ccusage@20.0.6"\`). ccusage reads the local
-\`~/.claude\` / \`~/.codex\` / Gemini usage logs.
+needs a pinned ccusage command. The one-command installer writes
+\`USAGE_CCUSAGE_CMD\` to an absolute Bun binary plus the repo-local
+\`packages/daemon/node_modules/.bin/ccusage\`;
+standalone binary installs should set the same kind of argv-array command, or fall back
+to \`["npx","-y","ccusage@20.0.6"]\`. ccusage reads the local \`~/.claude\` /
+\`~/.codex\` / Gemini usage logs. Each report subprocess is killed after
+\`USAGE_CCUSAGE_TIMEOUT_SECONDS\` so one stuck external command cannot wedge the daemon.
 
 ## Run unattended
 

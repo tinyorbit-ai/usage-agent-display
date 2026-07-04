@@ -100,8 +100,11 @@ USAGE_SERVER_URL="https://usage.your-domain" USAGE_BEARER_TOKEN="<shared-secret>
 
 It compiles the daemon to a single binary in `~/.usage-agent/`, writes the service with
 your config (the token lives only in that local service file), and starts it. Re-run after
-a `git pull` to update. `USAGE_MACHINE_ID` defaults to the hostname; needs `bunx`/`npx`
-for ccusage (or set `USAGE_CCUSAGE_CMD`). Uninstall instructions print on install.
+a `git pull` to update. `USAGE_MACHINE_ID` defaults to the hostname. By default the
+service invokes the repo-local pinned `packages/daemon` ccusage binary through an absolute
+Bun path, and each report subprocess has a watchdog (`USAGE_CCUSAGE_TIMEOUT_SECONDS`,
+default 60) so one stuck collector cannot stop future posts. Set `USAGE_CCUSAGE_CMD` only
+to override that pinned command. Uninstall instructions print on install.
 
 ## License
 

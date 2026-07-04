@@ -48,15 +48,20 @@ const token = ask("USAGE_BEARER_TOKEN");
 const machineId = ask("USAGE_MACHINE_ID", hostname().replace(/\.local$/i, "").toLowerCase());
 const interval = process.env.USAGE_INTERVAL_SECONDS?.trim() || "30";
 const provider = process.env.USAGE_PROVIDER?.trim() || "claude-code";
+const ccusageTimeout = process.env.USAGE_CCUSAGE_TIMEOUT_SECONDS?.trim() || "60";
 
-// ccusage runner: explicit override, else absolute bunx/npx (launchd/systemd have a bare PATH).
+// ccusage runner: explicit override, else the pinned daemon workspace dependency.
+// The JSON-array form keeps paths with spaces intact for parseCommand().
 const ccusageCmd =
   process.env.USAGE_CCUSAGE_CMD?.trim() ||
   (() => {
+    const local = join(ROOT, "packages/daemon/node_modules/.bin/ccusage");
+    const bun = which("bun");
+    if (existsSync(local) && bun) return JSON.stringify([bun, local]);
     const bunx = which("bunx");
-    if (bunx) return `${bunx} ccusage`;
+    if (bunx) return JSON.stringify([bunx, "ccusage@20.0.6"]);
     const npx = which("npx");
-    if (npx) return `${npx} -y ccusage@20.0.6`;
+    if (npx) return JSON.stringify([npx, "-y", "ccusage@20.0.6"]);
     console.error("\n⚠ neither bunx nor npx found — install Bun (curl -fsSL https://bun.sh/install | bash)");
     console.error("  or set USAGE_CCUSAGE_CMD to how ccusage should run.");
     process.exit(1);
@@ -83,6 +88,7 @@ const env: Record<string, string> = {
   USAGE_INTERVAL_SECONDS: interval,
   USAGE_PROVIDER: provider,
   USAGE_CCUSAGE_CMD: ccusageCmd,
+  USAGE_CCUSAGE_TIMEOUT_SECONDS: ccusageTimeout,
 };
 
 const os = platform();

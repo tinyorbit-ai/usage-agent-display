@@ -126,6 +126,12 @@ fields without breaking older firmware:
 - **Multi-agent for real.** ccusage v20 reports claude + codex + gemini natively; the
   daemon derives each row's provider from the model name (phase 6,
   [[notes/2026-06-06-ccusage-multi-agent]]).
+- **Daemon collector subprocesses are bounded.** The installed daemon invokes pinned
+  ccusage through an argv-array command (absolute Bun + repo-local
+  `packages/daemon/node_modules/.bin/ccusage`) and kills any one report command after
+  `USAGE_CCUSAGE_TIMEOUT_SECONDS` (default 60). A hung external collector becomes a
+  skipped report for that tick, not a permanently stale daemon
+  ([[notes/2026-07-04-daemon-stalled-on-bunx-ccusage]]).
 - **Panel UI v2.** The CYD renders the "C2" design — pixel font, timeframe tabs
   (tap-to-cycle via PENIRQ), tokens/day graph (phase 7, [[decisions/0012-panel-visual-system-v2]]).
 - **Distribution & deploy.** Daemon ships as a single `bun --compile` binary; the server

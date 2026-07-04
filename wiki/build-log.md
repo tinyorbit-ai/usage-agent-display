@@ -3,6 +3,27 @@
 Part of [[index]]. One entry per phase: the verifiable gate that was met before
 merge. Newest on top. Appended by `forge-ship`.
 
+## Phase 13 — Daemon collector watchdog + pinned service command
+**Branch:** `phase/13-daemon-collector-watchdog` → squashed to `main`
+
+- **Root cause fixed:** `epic` was stale while launchd still showed the daemon alive
+  because the process was blocked under `bunx ccusage daily --json`; `bunx` had spawned a
+  long-running `bun add ccusage@latest ...` in `/private/tmp`. The daemon awaited that
+  child forever, so the self-chaining loop never scheduled the next tick. Captured in
+  [[notes/2026-07-04-daemon-stalled-on-bunx-ccusage]].
+- **The daemon now bounds external collectors.** `makeSpawnExec()` kills any one report
+  command after `USAGE_CCUSAGE_TIMEOUT_SECONDS` (default 60) and the collector treats that
+  as a skipped report for the tick. The one-command installer writes `USAGE_CCUSAGE_CMD`
+  as a JSON argv array with an absolute Bun binary plus the pinned workspace ccusage script,
+  not bare `bunx ccusage`, restoring [[decisions/0002-ccusage-invocation]]'s
+  no-per-run-network guarantee.
+- **Live recovery:** reinstalled launchd service on `epic`; the first good tick posted
+  `672` rows with `skipped=0`. Server summary then showed `epic` fresh (`age_seconds=42`,
+  `stale=false`) and today's Claude total at `392.9M`, so the missed local usage was
+  backfilled from ccusage's cumulative local report.
+- **Gate:** `bun run gate` — **green**: typecheck, `check:sql`, `check:fwcore`,
+  `scan:secrets`, 140 unit tests, firmware native suites, e2e, and ops smoke.
+
 ## Phase 12 — Firmware: agent control + full-readout filter
 **Branch:** `phase/12-agent-filter` → squashed to `main`
 

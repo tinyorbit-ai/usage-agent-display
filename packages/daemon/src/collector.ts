@@ -27,29 +27,58 @@ const REPORT_ARRAY_KEY: Record<ReportType, string> = {
   monthly: "monthly",
 };
 
-/** Runs a command (argv array) and returns stdout, or throws on non-zero exit. */
+/** Runs a command (argv array) and returns stdout, or throws on failure. */
 export type Exec = (argv: string[]) => Promise<string>;
 
-/** Default exec: argv-array spawn, no shell. Resolves the pinned ccusage via bunx. */
-export const spawnExec: Exec = async (argv) => {
-  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`\`${argv[0]}\` exited ${code}: ${stderr.slice(0, 500)}`);
-  }
-  return stdout;
-};
+export interface SpawnExecOptions {
+  /** Max wall-clock time for one external report command. */
+  timeoutMs?: number;
+}
+
+const DEFAULT_SPAWN_TIMEOUT_MS = 60_000;
+
+/** Default exec: argv-array spawn, no shell, with a watchdog around the child. */
+export function makeSpawnExec(opts: SpawnExecOptions = {}): Exec {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_SPAWN_TIMEOUT_MS;
+
+  return async (argv) => {
+    const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill("SIGKILL");
+    }, timeoutMs);
+
+    let result: [string, string, number];
+    try {
+      result = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const [stdout, stderr, code] = result;
+    if (timedOut) {
+      throw new Error(`\`${argv[0]}\` timed out after ${timeoutMs}ms`);
+    }
+    if (code !== 0) {
+      throw new Error(`\`${argv[0]}\` exited ${code}: ${stderr.slice(0, 500)}`);
+    }
+    return stdout;
+  };
+}
+
+export const spawnExec: Exec = makeSpawnExec();
 
 export interface CcusageOptions {
   provider: string;
   reports: readonly ReportType[];
   /** override the binary invocation (tests inject a fake exec). */
   exec?: Exec;
-  /** the argv prefix that runs ccusage; defaults to the pinned dep via bunx. */
+  /** the argv prefix that runs ccusage. */
   command?: string[];
 }
 

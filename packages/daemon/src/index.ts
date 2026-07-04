@@ -6,7 +6,7 @@
  * prints counts and statuses.
  */
 import { ConfigError, loadConfig } from "./config.ts";
-import { buildCollectors } from "./collector.ts";
+import { buildCollectors, makeSpawnExec } from "./collector.ts";
 import { makePoster } from "./post.ts";
 import { runLoop } from "./loop.ts";
 
@@ -28,9 +28,10 @@ try {
 
 // Built through the provider registry: today one ccusage-backed provider, but adding
 // another is a ProviderSpec entry — no change to collect/post/aggregate (phase 5).
+const exec = makeSpawnExec({ timeoutMs: config.ccusageTimeoutMs });
 const collectors = buildCollectors([
   { provider: config.provider, reports: config.reports, command: config.ccusageCommand },
-]);
+], exec);
 const poster = makePoster({ serverUrl: config.serverUrl, token: config.token });
 
 log("starting", {
@@ -38,6 +39,7 @@ log("starting", {
   server: config.serverUrl,
   providers: collectors.map((c) => c.provider),
   interval_ms: config.intervalMs,
+  ccusage_timeout_ms: config.ccusageTimeoutMs,
 });
 
 const stop = runLoop(

@@ -13,9 +13,10 @@ reproducibility.
 ## Decision
 
 Pin `ccusage` as a **dependency of the daemon package** (`packages/daemon`) and invoke
-the local binary (via `bunx ccusage` resolving the pinned version / `node_modules/.bin`),
-never a globally-installed one. The daemon shells `ccusage --json` (claude + codex,
-unified) and forwards the normalized output.
+the local binary (`packages/daemon/node_modules/.bin/ccusage`), never a
+globally-installed one. The daemon shells `ccusage --json` (claude + codex, unified) and
+forwards the normalized output. Each external report command is time-bounded so a stuck
+collector cannot stop future daemon ticks.
 
 ## Why
 
@@ -23,6 +24,8 @@ unified) and forwards the normalized output.
   "works on my laptop" drift from differing global installs.
 - **No per-run network fetch** — unlike `bunx ccusage@latest`, the pinned dep is
   installed once with the daemon.
+- **Bounded failure** — ccusage is an external process; a hang must be treated like a
+  collector failure, not allowed to wedge the daemon loop.
 - **Daemon stays format-agnostic** — it parses ccusage's stable JSON shape (it has an
   `Agent`/provider column), not raw provider logs. When ccusage breaks on a Codex
   format change, we bump one pinned version, not rewrite a parser.
@@ -31,6 +34,9 @@ unified) and forwards the normalized output.
 
 - **`bunx ccusage@latest` on demand** — always current, but needs network each run and
   silently changes behavior under us. Rejected: unreproducible.
+- **Bare `bunx ccusage` in the service config** — looks pinned if the workspace happens
+  to be current, but launchd can resolve it through a temporary `ccusage@latest` install.
+  Rejected after [[../notes/2026-07-04-daemon-stalled-on-bunx-ccusage]].
 - **Require a global `ccusage` install** — one less dep, but version drift across
   machines and an undocumented prerequisite. Rejected.
 - **Parse `~/.claude/projects` + `~/.codex` JSONL directly** — no ccusage dependency,
@@ -51,3 +57,8 @@ unified) and forwards the normalized output.
   now points its collector at the relevant ccusage subcommand per provider. See
   [[../notes/2026-06-06-ccusage-multi-agent]]. The direct-parse fallback is now motivated
   only by the producer-bucket TZ limit, not by missing provider data.
+- **Update 2026-07-04:** the one-command installer now writes `USAGE_CCUSAGE_CMD` as a
+  JSON argv array containing an absolute Bun binary plus the pinned local ccusage script,
+  and the daemon kills any one ccusage report command after
+  `USAGE_CCUSAGE_TIMEOUT_SECONDS` (default 60). See
+  [[../notes/2026-07-04-daemon-stalled-on-bunx-ccusage]].

@@ -1,7 +1,14 @@
 // machine_id provenance: explicit wins; hostname-derived fallback strips `.local`;
 // collision-prone values are refused so two machines can't silently merge.
 import { describe, expect, test } from "bun:test";
-import { ConfigError, hostnameMachineId, loadConfig, parseCommand, resolveMachineId } from "../src/config.ts";
+import {
+  ConfigError,
+  defaultCcusageCommand,
+  hostnameMachineId,
+  loadConfig,
+  parseCommand,
+  resolveMachineId,
+} from "../src/config.ts";
 
 describe("resolveMachineId", () => {
   test("explicit id wins over hostname", () => {
@@ -37,6 +44,7 @@ describe("loadConfig", () => {
     expect(cfg.serverUrl).toBe("http://server:8080");
     expect(cfg.provider).toBe("claude-code");
     expect(cfg.intervalMs).toBe(30_000);
+    expect(cfg.ccusageTimeoutMs).toBe(60_000);
   });
 
   test("missing server url throws ConfigError", () => {
@@ -52,8 +60,14 @@ describe("loadConfig", () => {
   });
 
   test("USAGE_CCUSAGE_CMD defaults to pinned ccusage and overrides via env", () => {
-    expect(loadConfig({ ...base }).ccusageCommand).toEqual(["bunx", "ccusage"]);
+    expect(loadConfig({ ...base }).ccusageCommand).toEqual(defaultCcusageCommand());
     expect(loadConfig({ ...base, USAGE_CCUSAGE_CMD: "bun run stub.ts" }).ccusageCommand).toEqual(["bun", "run", "stub.ts"]);
+  });
+
+  test("USAGE_CCUSAGE_TIMEOUT_SECONDS defaults and overrides", () => {
+    expect(loadConfig({ ...base }).ccusageTimeoutMs).toBe(60_000);
+    expect(loadConfig({ ...base, USAGE_CCUSAGE_TIMEOUT_SECONDS: "2.5" }).ccusageTimeoutMs).toBe(2_500);
+    expect(() => loadConfig({ ...base, USAGE_CCUSAGE_TIMEOUT_SECONDS: "0" })).toThrow(ConfigError);
   });
 });
 

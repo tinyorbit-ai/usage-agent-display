@@ -42,6 +42,8 @@ A Cheap Yellow Display desk panel showing my live, aggregated Claude Code + Code
 - [[notes/2026-06-06-chart-point-count-divide-by-zero]] — green host suite + clean build,
   but the LVGL bar chart boot-looped on first flash (point_count==1 ÷0); the hardware gate
   is load-bearing
+- [[notes/2026-07-04-daemon-stalled-on-bunx-ccusage]] — local daemon process stayed alive
+  while a `bunx ccusage` child hung, so `epic` stopped posting and went stale
 
 ## Reading order
 

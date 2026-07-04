@@ -5,7 +5,9 @@
  * a value two machines could collide on (bare `localhost`, empty) is refused so the
  * cross-machine aggregation can never silently merge two boxes into one.
  */
+import { existsSync } from "node:fs";
 import { hostname } from "node:os";
+import { fileURLToPath } from "node:url";
 
 export interface DaemonConfig {
   machineId: string;
@@ -19,6 +21,8 @@ export interface DaemonConfig {
   provider: string;
   /** argv that runs ccusage; overridable (USAGE_CCUSAGE_CMD) for stubs/alt binaries. */
   ccusageCommand: string[];
+  /** max wall-clock time for one ccusage report command. */
+  ccusageTimeoutMs: number;
 }
 
 /** Values too generic to safely identify a single machine. */
@@ -67,6 +71,12 @@ export function parseCommand(raw: string | undefined, fallback: string[]): strin
   return t.split(/\s+/);
 }
 
+/** Prefer the pinned daemon package dependency; fall back to a pinned bunx version. */
+export function defaultCcusageCommand(): string[] {
+  const local = fileURLToPath(new URL("../node_modules/.bin/ccusage", import.meta.url));
+  return existsSync(local) ? [local] : ["bunx", "ccusage@20.0.6"];
+}
+
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
   const v = env[name];
   if (!v || v.length === 0) throw new ConfigError(`missing required env var ${name}`);
@@ -78,11 +88,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
   if (!Number.isFinite(intervalSeconds) || intervalSeconds < 1) {
     throw new ConfigError("USAGE_INTERVAL_SECONDS must be a number >= 1");
   }
+  const ccusageTimeoutSeconds = Number(env.USAGE_CCUSAGE_TIMEOUT_SECONDS ?? 60);
+  if (!Number.isFinite(ccusageTimeoutSeconds) || ccusageTimeoutSeconds < 1) {
+    throw new ConfigError("USAGE_CCUSAGE_TIMEOUT_SECONDS must be a number >= 1");
+  }
   // The ccusage invocation is overridable so a smoke test / alternate binary can be
   // substituted without code changes. A JSON array (`["bun","run","/p ath/x.ts"]`)
   // preserves args/paths with spaces; a plain string is split on whitespace for
-  // convenience. Default = pinned ccusage.
-  const ccusageCommand = parseCommand(env.USAGE_CCUSAGE_CMD, ["bunx", "ccusage"]);
+  // convenience. Default = pinned daemon package dependency.
+  const ccusageCommand = parseCommand(env.USAGE_CCUSAGE_CMD, defaultCcusageCommand());
 
   return {
     machineId: resolveMachineId(env.USAGE_MACHINE_ID),
@@ -92,5 +106,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
     intervalMs: Math.round(intervalSeconds * 1000),
     provider: env.USAGE_PROVIDER?.trim() || "claude-code",
     ccusageCommand,
+    ccusageTimeoutMs: Math.round(ccusageTimeoutSeconds * 1000),
   };
 }

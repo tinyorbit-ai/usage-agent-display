@@ -1,7 +1,7 @@
 // Collector: provider tagging across report types, argv shape (no shell string), and
 // per-report isolation — one report type failing doesn't sink the others.
 import { describe, expect, test } from "bun:test";
-import { buildCollectors, ccusageCollector, type Exec } from "../src/collector.ts";
+import { buildCollectors, ccusageCollector, makeSpawnExec, type Exec } from "../src/collector.ts";
 
 const dailyJson = JSON.stringify({
   daily: [{ date: "2026-06-05", modelBreakdowns: [{ modelName: "m", outputTokens: 10, cost: 0.1 }] }],
@@ -45,6 +45,21 @@ describe("ccusageCollector", () => {
     const exec: Exec = async () => "not json at all";
     const collector = ccusageCollector({ provider: "claude-code", reports: ["daily"], exec });
     const { rows, skipped } = await collector.collect();
+    expect(rows).toHaveLength(0);
+    expect(skipped).toBe(1);
+  });
+
+  test("a hung ccusage subprocess times out and is skipped", async () => {
+    const exec = makeSpawnExec({ timeoutMs: 50 });
+    const collector = ccusageCollector({
+      provider: "claude-code",
+      reports: ["daily"],
+      exec,
+      command: [process.execPath, "--eval", "await new Promise(() => {})"],
+    });
+
+    const { rows, skipped } = await collector.collect();
+
     expect(rows).toHaveLength(0);
     expect(skipped).toBe(1);
   });
