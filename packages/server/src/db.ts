@@ -96,6 +96,8 @@ export class Db {
     [string]
   >;
   private readonly lastUsedStmt: Statement<{ provider: string; activity: number }, []>;
+  private readonly countSnapshotsStmt: Statement<{ n: number }, []>;
+  private readonly countTotalSamplesStmt: Statement<{ n: number }, []>;
 
   constructor(path = ":memory:") {
     this.handle = new Database(path);
@@ -326,6 +328,10 @@ export class Db {
         ORDER BY activity DESC
         LIMIT 1;`,
     );
+
+    // Plain row counts, for the /metrics `usage_db_rows` gauge (phase 8).
+    this.countSnapshotsStmt = this.handle.query(`SELECT COUNT(*) AS n FROM snapshots;`);
+    this.countTotalSamplesStmt = this.handle.query(`SELECT COUNT(*) AS n FROM total_samples;`);
   }
 
   private migrate(): void {
@@ -501,6 +507,16 @@ export class Db {
       : a.id - b.id,
     );
     return all;
+  }
+
+  /** Row count in `snapshots` — for the /metrics `usage_db_rows` gauge. */
+  countSnapshots(): number {
+    return this.countSnapshotsStmt.get()?.n ?? 0;
+  }
+
+  /** Row count in `total_samples` — for the /metrics `usage_db_rows` gauge. */
+  countTotalSamples(): number {
+    return this.countTotalSamplesStmt.get()?.n ?? 0;
   }
 
   close(): void {

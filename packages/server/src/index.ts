@@ -32,7 +32,7 @@ const budgetUsd = Number.isFinite(budgetRaw) && budgetRaw > 0 ? budgetRaw : null
 
 const db = new Db(dbPath);
 const logger = makeLogger();
-const app = createApp({ db, token, logger, summary: { staleAfterSeconds, timezone, budgetUsd } });
+const app = createApp({ db, token, logger, dbPath, summary: { staleAfterSeconds, timezone, budgetUsd } });
 
 // Retention: prune rows not re-posted within the window, daily (phase 5, ADR 0011).
 // A typo'd value fails fast rather than silently disabling pruning forever.
